@@ -162,6 +162,11 @@ type FuelDepot = {
 };
 const depots: FuelDepot[] = [];
 
+type RefuelRipple = { mesh: THREE.Mesh; t: number };
+let refuelRipples: RefuelRipple[] = [];
+let refuelRippleSpawnAcc = 0;
+let refuelShakePhase = 0;
+
 type Bridge = {
   z: number;
   destroyed: boolean;
@@ -357,11 +362,90 @@ function addFuelDepotAlongRiver(state: GAME.State, cx: number, cz: number): THRE
     const mesh = new THREE.Mesh(geom, mat);
     const zi = cz - bl * 0.5 + segZ * (3 - i + 0.5);
     mesh.position.set(cx, deckY, zi);
+    mesh.userData.refuelBase = { x: cx, y: deckY, z: zi };
     mesh.renderOrder = 5;
     rc.scene.add(mesh);
     out.push(mesh);
   }
   return out;
+}
+
+function spawnRefuelRipple(state: GAME.State, cx: number, cz: number) {
+  const rc = getRenderingContext(state);
+  const waterY = -2.62 * S;
+  const ring = new THREE.RingGeometry(0.32 * S, 0.5 * S, 56);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xb8e8ff,
+    transparent: true,
+    opacity: 0.52,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: true,
+  });
+  const mesh = new THREE.Mesh(ring, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(cx, waterY, cz);
+  mesh.renderOrder = 4;
+  rc.scene.add(mesh);
+  refuelRipples.push({ mesh, t: 0 });
+}
+
+function updateRefuelRipples(state: GAME.State, dt: number) {
+  const sc = getRenderingContext(state).scene;
+  for (let i = refuelRipples.length - 1; i >= 0; i--) {
+    const r = refuelRipples[i]!;
+    r.t += dt * 1.05;
+    const s = 1 + r.t * 3.4;
+    r.mesh.scale.setScalar(s);
+    const mat = r.mesh.material as THREE.MeshBasicMaterial;
+    mat.opacity = Math.max(0, 0.5 * (1 - r.t * 0.75));
+    if (r.t > 1.2) {
+      sc.remove(r.mesh);
+      r.mesh.geometry.dispose();
+      mat.dispose();
+      refuelRipples.splice(i, 1);
+    }
+  }
+}
+
+function updateDepotRefuelShake(depot: FuelDepot, active: boolean, phase: number) {
+  if (depot.destroyed) return;
+  let idx = 0;
+  for (const m of depot.meshes) {
+    const b = m.userData.refuelBase as { x: number; y: number; z: number } | undefined;
+    if (!b) {
+      idx++;
+      continue;
+    }
+    if (active) {
+      const ph = phase + idx * 0.62;
+      const ap = 0.11 * S;
+      m.position.set(
+        b.x + Math.sin(ph * 21) * ap,
+        b.y + Math.sin(ph * 28 + 0.9) * ap * 0.42,
+        b.z + Math.cos(ph * 17) * ap * 0.68,
+      );
+      m.rotation.x = Math.sin(ph * 35) * 0.038;
+      m.rotation.z = Math.cos(ph * 24) * 0.048;
+    } else {
+      m.position.set(b.x, b.y, b.z);
+      m.rotation.set(0, 0, 0);
+    }
+    idx++;
+  }
+}
+
+function clearRefuelFx(state: GAME.State) {
+  const sc = getRenderingContext(state).scene;
+  for (const r of refuelRipples) {
+    sc.remove(r.mesh);
+    r.mesh.geometry.dispose();
+    (r.mesh.material as THREE.MeshBasicMaterial).dispose();
+  }
+  refuelRipples.length = 0;
+  refuelRippleSpawnAcc = 0;
+  refuelShakePhase = 0;
+  for (const d of depots) updateDepotRefuelShake(d, false, 0);
 }
 
 function showGameEndOverlay(kind: 'continue' | 'game_over') {
@@ -405,6 +489,7 @@ function resetJetsAndProgress(state: GAME.State) {
     d.destroyed = false;
     /* визуалы не пересоздаём при полном сбросе — сессия та же; депо остаётся «срубленным» по визуалу */
   }
+  clearRefuelFx(state);
   if (planeId >= 0 && state.exists(planeId)) {
     Body.posX[planeId] = riverCenterXAt(0);
     Body.posY[planeId] = 4.8 * S;
@@ -892,6 +977,7 @@ const GameplaySim: GAME.System = {
     const px = Body.posX[planeId];
 
     if (runState !== 'playing') {
+      for (const d of depots) updateDepotRefuelShake(d, false, 0);
       if (cameraId >= 0 && state.exists(cameraId)) {
         OrbitCamera.targetYaw[cameraId] = CAM_YAW;
         OrbitCamera.currentYaw[cameraId] = CAM_YAW;
@@ -903,6 +989,7 @@ const GameplaySim: GAME.System = {
         OrbitCamera.zoomSensitivity[cameraId] = 0;
       }
       updateHud(pz, fuel < 26);
+      updateRefuelRipples(state, dt);
       return;
     }
 
@@ -924,12 +1011,30 @@ const GameplaySim: GAME.System = {
       die(state);
     }
 
+    let refuelRippleAt: { cx: number; cz: number } | null = null;
     for (const d of depots) {
       if (d.destroyed) continue;
       if (Math.abs(px - d.cx) < DEPOT_RX && Math.abs(pz - d.cz) < DEPOT_RZ) {
         fuel = Math.min(100, fuel + dt * 42);
+        refuelRippleAt = { cx: d.cx, cz: d.cz };
       }
     }
+    if (refuelRippleAt) {
+      refuelShakePhase += dt;
+      refuelRippleSpawnAcc += dt;
+      if (refuelRippleSpawnAcc >= 0.11) {
+        refuelRippleSpawnAcc = 0;
+        spawnRefuelRipple(state, refuelRippleAt.cx, refuelRippleAt.cz);
+      }
+    } else {
+      refuelRippleSpawnAcc = 0;
+    }
+    for (const d of depots) {
+      const near =
+        !d.destroyed && Math.abs(px - d.cx) < DEPOT_RX && Math.abs(pz - d.cz) < DEPOT_RZ;
+      updateDepotRefuelShake(d, near, refuelShakePhase);
+    }
+    updateRefuelRipples(state, dt);
 
     updateHud(pz, lowFuel);
     tryMissileWorldHits(state);
