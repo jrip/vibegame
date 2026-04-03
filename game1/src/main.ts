@@ -32,6 +32,7 @@ const C = {
   planeWing: '#f0c818',
   planeTail: '#e8b010',
   planeNose: '#2c2c34',
+  planeCockpit: '#3a5080',
   bullet: '#fff8a0',
   enemyHelo: '#c018c8',
   enemyJet: '#9098a8',
@@ -147,6 +148,11 @@ const flowIds: number[] = [];
 
 /** Смещения визуала от Body (как спрайт RR: белый корпус, жёлтые крылья/хвост, тёмный нос). */
 const planeVis: { eid: number; ox: number; oy: number; oz: number; yaw: number }[] = [];
+/** Одно жёлтое крыло-треугольник (не box), синхронизируется в syncPlaneRiverRaidVis */
+let planeDeltaWingMesh: THREE.Mesh | null = null;
+let planeDeltaWingOx = 0;
+let planeDeltaWingOy = 0;
+let planeDeltaWingOz = 0;
 
 type EnemyKind = 'helo' | 'ship' | 'jet';
 const enemyKind = new Map<number, EnemyKind>();
@@ -230,8 +236,61 @@ function applyRiverHorizonAtmosphere(state: GAME.State) {
   }
 }
 
+/** Визуал и коллайдер ~×2. Узкий фюзеляж + одно крыло-треугольник (дельта в плане XZ). */
+const PLANE_VIS_SCALE = 2;
+
+function disposePlaneDeltaWing(state: GAME.State) {
+  if (!planeDeltaWingMesh) return;
+  getRenderingContext(state).scene.remove(planeDeltaWingMesh);
+  planeDeltaWingMesh.geometry.dispose();
+  (planeDeltaWingMesh.material as THREE.MeshBasicMaterial).dispose();
+  planeDeltaWingMesh = null;
+}
+
+/** Планформа: остриё в +Z, корма по X — как прямоугольник с срезанными передними углами → треугольник сверху */
+function buildDeltaWingGeometry(span: number, chord: number, halfThick: number): THREE.BufferGeometry {
+  const hz = chord * 0.5;
+  const hx = span * 0.5;
+  const y = halfThick;
+  const v = new Float32Array([
+    0, y, hz,
+    -hx, y, -hz,
+    hx, y, -hz,
+    0, -y, hz,
+    -hx, -y, -hz,
+    hx, -y, -hz,
+  ]);
+  const idx = [
+    0, 1, 2, 3, 5, 4, 0, 3, 4, 0, 4, 1, 0, 2, 5, 0, 5, 3, 1, 2, 5, 1, 5, 4,
+  ];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function buildPlaneRiverRaidVis(state: GAME.State) {
   planeVis.length = 0;
+  const V = PLANE_VIS_SCALE;
+  disposePlaneDeltaWing(state);
+
+  const span = 5.35 * S * V;
+  const chord = 2.05 * S * V;
+  const halfT = 0.055 * S * V;
+  const wingGeo = buildDeltaWingGeometry(span, chord, halfT);
+  const wingMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(C.planeWing),
+    side: THREE.DoubleSide,
+    fog: true,
+  });
+  planeDeltaWingMesh = new THREE.Mesh(wingGeo, wingMat);
+  planeDeltaWingMesh.renderOrder = 2;
+  planeDeltaWingOx = 0;
+  planeDeltaWingOy = 0.035 * V * S;
+  planeDeltaWingOz = -0.08 * V * S;
+  getRenderingContext(state).scene.add(planeDeltaWingMesh);
+
   const add = (
     ox: number,
     oy: number,
@@ -246,13 +305,16 @@ function buildPlaneRiverRaidVis(state: GAME.State) {
     Renderer.unlit[id] = 1;
     planeVis.push({ eid: id, ox: ox * S, oy: oy * S, oz: oz * S, yaw });
   };
-  add(0, 0.02, 0, 1.12 * S, 0.3 * S, 2.32 * S, C.planeBody, 0);
-  add(-0.58, 0.02, -0.08, 0.48 * S, 0.08 * S, 1.42 * S, C.planeWing, 0.38);
-  add(0.58, 0.02, -0.08, 0.48 * S, 0.08 * S, 1.42 * S, C.planeWing, -0.38);
-  add(0, 0.05, -1.02, 0.35 * S, 0.1 * S, 0.58 * S, C.planeTail, 0);
-  add(0, 0.03, 1.08, 0.38 * S, 0.2 * S, 0.52 * S, C.planeNose, 0);
-  add(-0.22, 0.04, 0.75, 0.16 * S, 0.12 * S, 0.45 * S, C.planeWing, 0);
-  add(0.22, 0.04, 0.75, 0.16 * S, 0.12 * S, 0.45 * S, C.planeWing, 0);
+  /* Узкий длинный фюзеляж над крылом (зазор по Y, не режет крыло) */
+  add(0, 0.36 * V, 0, 0.74 * S * V, 0.48 * S * V, 5.05 * S * V, C.planeBody, 0);
+  /* Тёмный нос — только впереди корпуса, без пересечения с белым */
+  add(0, 0.36 * V, 3.08 * V, 0.36 * S * V, 0.36 * S * V, 1.0 * S * V, C.planeNose, 0);
+  /* Стекло — сине-серое, чётко над верхом корпуса */
+  add(0, 0.72 * V, 0.38 * V, 0.32 * S * V, 0.16 * S * V, 0.95 * S * V, C.planeCockpit, 0);
+  /* ГО чуть выше крыла, ниже корпуса — без прохода через белый блок */
+  add(0, 0.07 * V, -2.12 * V, 1.65 * S * V, 0.08 * S * V, 0.52 * S * V, C.planeWing, 0);
+  /* Киль над крышкой фюзеляжа, нижний край выше белого — без мерцания */
+  add(0, 0.92 * V, -2.18 * V, 0.1 * S * V, 0.55 * S * V, 0.46 * S * V, C.planeTail, 0);
 }
 
 function syncPlaneRiverRaidVis(state: GAME.State) {
@@ -260,6 +322,10 @@ function syncPlaneRiverRaidVis(state: GAME.State) {
   const px = Body.posX[planeId];
   const py = Body.posY[planeId];
   const pz = Body.posZ[planeId];
+  if (planeDeltaWingMesh) {
+    planeDeltaWingMesh.position.set(px + planeDeltaWingOx, py + planeDeltaWingOy, pz + planeDeltaWingOz);
+    planeDeltaWingMesh.rotation.y = 0;
+  }
   for (const v of planeVis) {
     if (!state.exists(v.eid)) continue;
     Transform.posX[v.eid] = px + v.ox;
@@ -845,7 +911,7 @@ function buildLevel(state: GAME.State) {
   planeId = state.createFromRecipe('kinematic-part', {
     pos: `${riverCenterXAt(0)} ${4.8 * S} 0`,
     shape: 'box',
-    size: `${1.45 * S} ${0.42 * S} ${2.7 * S}`,
+    size: `${2.9 * S} ${0.84 * S} ${5.4 * S}`,
     color: C.planeBody,
   });
   Renderer.visible[planeId] = 0;
@@ -856,7 +922,7 @@ function buildLevel(state: GAME.State) {
   const cam = state.createFromRecipe('orbit-camera', {
     'target-distance': `${CAM_DIST}`,
     'target-pitch': String(CAM_PITCH),
-    'offset-y': `${1.15 * S}`,
+    'offset-y': `${1.45 * S}`,
     smoothness: '1',
   });
   cameraId = cam;
@@ -1045,7 +1111,7 @@ const GameplaySim: GAME.System = {
       const x = Body.posX[planeId];
       const y = Body.posY[planeId];
       const z = Body.posZ[planeId];
-      const nose = 2.1 * S;
+      const nose = 3.62 * S * PLANE_VIS_SCALE;
       const m = state.createFromRecipe('kinematic-part', {
         pos: `${x} ${y} ${z + FZ * nose}`,
         shape: 'sphere',
