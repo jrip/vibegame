@@ -1,11 +1,14 @@
-# Сборка game1 и публикация на GitHub Pages при пуше в main.
-# В репозитории: Settings → Pages → Build and deployment → Source: GitHub Actions.
+# Сборка game1 и публикация на GitHub Pages.
+# Срабатывает: любой push в master (в т.ч. после merge PR в master).
+# Вручную: Actions → Deploy GitHub Pages → Run workflow.
+# Репозиторий: Settings → Pages → Source: GitHub Actions.
 
 name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [master]
+  workflow_dispatch:
 
 permissions:
   contents: read
