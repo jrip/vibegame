@@ -37,11 +37,9 @@ const C = {
   enemyHelo: '#c018c8',
   enemyJet: '#9098a8',
   enemyShip: '#6b3c18',
-  wake: '#a8e8ff',
   bridgeWood: '#704028',
   bridgeRail: '#5a3418',
   tree: '#1a6a12',
-  channelMark: '#f8f878',
 } as const;
 
 /** Очки как в мануалах/стратегиях River Raid */
@@ -59,7 +57,6 @@ const ENEMY_SHIP_SPEED = 6.5 * S;
 const ENEMY_JET_SPEED = 11 * S;
 const SHOOT_COOLDOWN = 0.42;
 const ENEMY_SPAWN_EVERY = 2.05;
-const FLOW_COUNT = 28;
 
 const RIVER_WIDE = 6;
 const RIVER_HALF_MAX = 7.4 * S * RIVER_WIDE;
@@ -144,7 +141,6 @@ let cameraId = -1;
 const hazardIds = new Set<number>();
 const enemyIds = new Set<number>();
 const missileIds = new Set<number>();
-const flowIds: number[] = [];
 
 /** Смещения визуала от Body (как спрайт RR: белый корпус, жёлтые крылья/хвост, тёмный нос). */
 const planeVis: { eid: number; ox: number; oy: number; oz: number; yaw: number }[] = [];
@@ -173,6 +169,18 @@ let refuelRipples: RefuelRipple[] = [];
 let refuelRippleSpawnAcc = 0;
 let refuelShakePhase = 0;
 
+type KillRingFx = {
+  mesh: THREE.Mesh;
+  t: number;
+  expand: number;
+  fadeK: number;
+  tMax: number;
+  opacity0: number;
+};
+let killRingFx: KillRingFx[] = [];
+/** Задержка перед показом меню после гибели джета (сек). */
+let deathMenuDelay = 0;
+
 type Bridge = {
   z: number;
   destroyed: boolean;
@@ -187,7 +195,12 @@ let enemySpawnTimer = 0;
 let initialized = false;
 /** Ссылка на мир для кнопки оверлея (после init). */
 let uiStateRef: GAME.State | null = null;
-type RunState = 'playing' | 'paused_continue' | 'paused_game_over';
+type RunState =
+  | 'playing'
+  | 'death_fx_continue'
+  | 'death_fx_game_over'
+  | 'paused_continue'
+  | 'paused_game_over';
 let runState: RunState = 'playing';
 let score = 0;
 let fuel = 100;
@@ -311,8 +324,8 @@ function buildPlaneRiverRaidVis(state: GAME.State) {
   add(0, 0.36 * V, 3.08 * V, 0.36 * S * V, 0.36 * S * V, 1.0 * S * V, C.planeNose, 0);
   /* Стекло — сине-серое, чётко над верхом корпуса */
   add(0, 0.72 * V, 0.38 * V, 0.32 * S * V, 0.16 * S * V, 0.95 * S * V, C.planeCockpit, 0);
-  /* ГО чуть выше крыла, ниже корпуса — без прохода через белый блок */
-  add(0, 0.07 * V, -2.12 * V, 1.65 * S * V, 0.08 * S * V, 0.52 * S * V, C.planeWing, 0);
+  /* ГО — потолще, чтобы с дистанции не читалась жёлтая «нить» */
+  add(0, 0.07 * V, -2.12 * V, 1.65 * S * V, 0.15 * S * V, 0.52 * S * V, C.planeWing, 0);
   /* Киль над крышкой фюзеляжа, нижний край выше белого — без мерцания */
   add(0, 0.92 * V, -2.18 * V, 0.1 * S * V, 0.55 * S * V, 0.46 * S * V, C.planeTail, 0);
 }
@@ -474,6 +487,107 @@ function updateRefuelRipples(state: GAME.State, dt: number) {
   }
 }
 
+/** Базовые радиусы кольца до правки «×4» от первой версии. */
+const MISSILE_RING_IN = 0.22 * S * 4;
+const MISSILE_RING_OUT = 0.48 * S * 4;
+
+function pushKillRingBurst(
+  state: GAME.State,
+  x: number,
+  y: number,
+  z: number,
+  inner: number,
+  outer: number,
+  color: number,
+  opacity0: number,
+  expand: number,
+  fadeK: number,
+  tMax: number,
+) {
+  const rc = getRenderingContext(state);
+  const ring = new THREE.RingGeometry(inner, outer, 56);
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: opacity0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: true,
+  });
+  const mesh = new THREE.Mesh(ring, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(x, y, z);
+  mesh.renderOrder = 7;
+  rc.scene.add(mesh);
+  killRingFx.push({ mesh, t: 0, expand, fadeK, tMax, opacity0 });
+}
+
+/** Попадание ракеты: крупное красное кольцо (~×4 к исходному). */
+function spawnMissileKillRing(state: GAME.State, x: number, y: number, z: number) {
+  pushKillRingBurst(
+    state,
+    x,
+    y,
+    z,
+    MISSILE_RING_IN,
+    MISSILE_RING_OUT,
+    0xff2a28,
+    0.88,
+    6.2,
+    0.95,
+    1.12,
+  );
+}
+
+/** Гибель нашего джета: то же по стилю, заметно крупнее и дольше на экране. */
+function spawnPlaneDeathRing(state: GAME.State, x: number, y: number, z: number) {
+  const mul = 2.65;
+  pushKillRingBurst(
+    state,
+    x,
+    y,
+    z,
+    MISSILE_RING_IN * mul,
+    MISSILE_RING_OUT * mul,
+    0xff3a32,
+    0.92,
+    4.2,
+    0.42,
+    2.35,
+  );
+  pushKillRingBurst(
+    state,
+    x,
+    y,
+    z,
+    MISSILE_RING_IN * mul * 0.42,
+    MISSILE_RING_OUT * mul * 0.5,
+    0xff8060,
+    0.55,
+    5.4,
+    0.55,
+    1.85,
+  );
+}
+
+function updateKillRingFx(state: GAME.State, dt: number) {
+  const sc = getRenderingContext(state).scene;
+  for (let i = killRingFx.length - 1; i >= 0; i--) {
+    const r = killRingFx[i]!;
+    r.t += dt * 1.15;
+    const s = 1 + r.t * r.expand;
+    r.mesh.scale.setScalar(s);
+    const mat = r.mesh.material as THREE.MeshBasicMaterial;
+    mat.opacity = Math.max(0, r.opacity0 * (1 - r.t * r.fadeK));
+    if (r.t > r.tMax || mat.opacity <= 0.001) {
+      sc.remove(r.mesh);
+      r.mesh.geometry.dispose();
+      mat.dispose();
+      killRingFx.splice(i, 1);
+    }
+  }
+}
+
 function updateDepotRefuelShake(depot: FuelDepot, active: boolean, phase: number) {
   if (depot.destroyed) return;
   let idx = 0;
@@ -512,6 +626,12 @@ function clearRefuelFx(state: GAME.State) {
   refuelRippleSpawnAcc = 0;
   refuelShakePhase = 0;
   for (const d of depots) updateDepotRefuelShake(d, false, 0);
+  for (const k of killRingFx) {
+    sc.remove(k.mesh);
+    k.mesh.geometry.dispose();
+    (k.mesh.material as THREE.MeshBasicMaterial).dispose();
+  }
+  killRingFx.length = 0;
 }
 
 function showGameEndOverlay(kind: 'continue' | 'game_over') {
@@ -556,6 +676,7 @@ function resetJetsAndProgress(state: GAME.State) {
     /* визуалы не пересоздаём при полном сбросе — сессия та же; депо остаётся «срубленным» по визуалу */
   }
   clearRefuelFx(state);
+  deathMenuDelay = 0;
   if (planeId >= 0 && state.exists(planeId)) {
     Body.posX[planeId] = riverCenterXAt(0);
     Body.posY[planeId] = 4.8 * S;
@@ -575,6 +696,7 @@ function respawnAtCheckpoint(state: GAME.State) {
   shootCooldownLeft = 0;
   enemySpawnTimer = 1.2;
   fuel = 100;
+  deathMenuDelay = 0;
   if (planeId >= 0 && state.exists(planeId)) {
     const rz = checkpointZ + 8 * S;
     Body.posX[planeId] = riverCenterXAt(rz);
@@ -591,6 +713,7 @@ function die(state: GAME.State) {
   jetsLeft -= 1;
   if (planeId >= 0 && state.exists(planeId)) {
     state.addComponent(planeId, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+    spawnPlaneDeathRing(state, Body.posX[planeId], Body.posY[planeId], Body.posZ[planeId]);
   }
   for (const eid of enemyIds) {
     if (state.exists(eid)) state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
@@ -598,13 +721,12 @@ function die(state: GAME.State) {
   for (const mid of missileIds) {
     if (state.exists(mid)) state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
   }
+  deathMenuDelay = 3;
   if (jetsLeft <= 0) {
-    runState = 'paused_game_over';
-    showGameEndOverlay('game_over');
+    runState = 'death_fx_game_over';
     return;
   }
-  runState = 'paused_continue';
-  showGameEndOverlay('continue');
+  runState = 'death_fx_continue';
 }
 
 function addScore(points: number) {
@@ -641,6 +763,7 @@ function updateHud(pz: number, lowFuel: boolean) {
 }
 
 function tryMissileWorldHits(state: GAME.State) {
+  const ringY = -2.62 * S;
   for (const mid of [...missileIds]) {
     if (!state.exists(mid)) {
       missileIds.delete(mid);
@@ -656,6 +779,7 @@ function tryMissileWorldHits(state: GAME.State) {
       const rcx = riverCenterXAt(b.z);
       if (Math.abs(mz - b.z) < BRIDGE_KILL_Z && Math.abs(mx - rcx) < hw) {
         addScore(SCORE_BRIDGE);
+        spawnMissileKillRing(state, rcx, ringY, b.z);
         destroyEntity(state, mid);
         destroyBridge(state, b);
         removed = true;
@@ -669,6 +793,7 @@ function tryMissileWorldHits(state: GAME.State) {
       if (Math.abs(mx - d.cx) < MISSILE_HIT_R && Math.abs(mz - d.cz) < MISSILE_HIT_R) {
         d.destroyed = true;
         addScore(SCORE_DEPOT);
+        spawnMissileKillRing(state, d.cx, ringY, d.cz);
         destroyDepotVisuals(state, d);
         destroyEntity(state, mid);
         removed = true;
@@ -827,17 +952,6 @@ function buildLevel(state: GAME.State) {
     }
   }
 
-  for (let z = Z_SEG_START + 35 * S; z < Z_SEG_END; z += 44 * S) {
-    const m = state.createFromRecipe('renderer', {
-      shape: 'box',
-      size: `${0.22 * S} ${6.8 * S} ${0.22 * S}`,
-      color: C.channelMark,
-    });
-    Transform.posX[m] = riverCenterXAt(z);
-    Transform.posY[m] = -1.05 * S;
-    Transform.posZ[m] = z;
-  }
-
   for (let z = Z_SEG_START + 72 * S; z < Z_SEG_END; z += 200 * S) {
     const half = riverHalfAt(z);
     const bcx = riverCenterXAt(z);
@@ -937,17 +1051,6 @@ function buildLevel(state: GAME.State) {
   OrbitCamera.sensitivity[cam] = 0;
   OrbitCamera.zoomSensitivity[cam] = 0;
 
-  for (let i = 0; i < FLOW_COUNT; i++) {
-    const f = state.createFromRecipe('renderer', {
-      shape: 'box',
-      size: `${0.13 * S} ${0.02 * S} ${2.4 * S}`,
-      color: C.wake,
-    });
-    Transform.posX[f] = (i % 2 === 0 ? -1 : 1) * (0.9 + (i % 6) * 0.45) * S;
-    Transform.posY[f] = -0.52 * S;
-    Transform.posZ[f] = (-10 + i * 3.6) * S;
-    flowIds.push(f);
-  }
 }
 
 const physicsWorldQuery = GAME.defineQuery([PhysicsWorld]);
@@ -1056,6 +1159,20 @@ const GameplaySim: GAME.System = {
       }
       updateHud(pz, fuel < 26);
       updateRefuelRipples(state, dt);
+      updateKillRingFx(state, dt);
+      if (runState === 'death_fx_continue' || runState === 'death_fx_game_over') {
+        deathMenuDelay -= dt;
+        if (deathMenuDelay <= 0) {
+          deathMenuDelay = 0;
+          if (runState === 'death_fx_game_over') {
+            runState = 'paused_game_over';
+            showGameEndOverlay('game_over');
+          } else {
+            runState = 'paused_continue';
+            showGameEndOverlay('continue');
+          }
+        }
+      }
       return;
     }
 
@@ -1101,6 +1218,7 @@ const GameplaySim: GAME.System = {
       updateDepotRefuelShake(d, near, refuelShakePhase);
     }
     updateRefuelRipples(state, dt);
+    updateKillRingFx(state, dt);
 
     updateHud(pz, lowFuel);
     tryMissileWorldHits(state);
@@ -1115,7 +1233,7 @@ const GameplaySim: GAME.System = {
       const m = state.createFromRecipe('kinematic-part', {
         pos: `${x} ${y} ${z + FZ * nose}`,
         shape: 'sphere',
-        size: `${0.38 * S}`,
+        size: `${2.05 * S}`,
         color: C.bullet,
       });
       state.addComponent(m, CollisionEvents, { activeEvents: 1 });
@@ -1148,13 +1266,6 @@ const GameplaySim: GAME.System = {
       state.addComponent(en, CollisionEvents, { activeEvents: 1 });
       enemyIds.add(en);
       enemyKind.set(en, kind);
-    }
-
-    const strip = BASE_FORWARD * dt;
-    for (const fid of flowIds) {
-      if (!state.exists(fid)) continue;
-      Transform.posZ[fid] -= strip * 0.88 * FZ;
-      if (Transform.posZ[fid] < pz - 42 * S) Transform.posZ[fid] = pz + 34 * S + Math.random() * 8 * S;
     }
 
     for (const mid of [...missileIds]) {
@@ -1199,6 +1310,12 @@ const GameplaySim: GAME.System = {
         const k = enemyKind.get(other);
         addScore(k === 'ship' ? SCORE_SHIP : k === 'jet' ? SCORE_JET : SCORE_HELO);
         fuel = Math.min(100, fuel + 6);
+        spawnMissileKillRing(
+          state,
+          (Body.posX[eid] + Body.posX[other]) * 0.5,
+          (Body.posY[eid] + Body.posY[other]) * 0.5,
+          (Body.posZ[eid] + Body.posZ[other]) * 0.5,
+        );
         destroyEntity(state, eid);
         destroyEntity(state, other);
         continue;
@@ -1207,6 +1324,12 @@ const GameplaySim: GAME.System = {
         const k = enemyKind.get(eid);
         addScore(k === 'ship' ? SCORE_SHIP : k === 'jet' ? SCORE_JET : SCORE_HELO);
         fuel = Math.min(100, fuel + 6);
+        spawnMissileKillRing(
+          state,
+          (Body.posX[eid] + Body.posX[other]) * 0.5,
+          (Body.posY[eid] + Body.posY[other]) * 0.5,
+          (Body.posZ[eid] + Body.posZ[other]) * 0.5,
+        );
         destroyEntity(state, other);
         destroyEntity(state, eid);
         continue;
@@ -1233,10 +1356,12 @@ document.getElementById('game-end-btn')?.addEventListener('click', () => {
   if (!st || runState === 'playing') return;
   if (runState === 'paused_continue') {
     runState = 'playing';
+    deathMenuDelay = 0;
     hideGameEndOverlay();
     respawnAtCheckpoint(st);
   } else if (runState === 'paused_game_over') {
     runState = 'playing';
+    deathMenuDelay = 0;
     hideGameEndOverlay();
     resetJetsAndProgress(st);
   }
