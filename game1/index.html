@@ -52,6 +52,60 @@
         max-width: 34rem;
         font-weight: 600;
       }
+      #game-end-overlay {
+        position: fixed;
+        left: 0;
+        right: 0;
+        top: 0;
+        z-index: 40;
+        padding: 14px 18px 16px;
+        background: linear-gradient(180deg, rgba(0, 18, 40, 0.94) 0%, rgba(0, 28, 55, 0.88) 100%);
+        border-bottom: 2px solid rgba(120, 200, 255, 0.45);
+        color: #e8f4ff;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        text-align: center;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+      }
+      #game-end-overlay.is-visible {
+        display: flex;
+      }
+      #game-end-overlay h2 {
+        margin: 0;
+        font-size: 1.15rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        color: #fff;
+      }
+      #game-end-overlay p {
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.45;
+        max-width: 28rem;
+        color: #b8d8f0;
+      }
+      #game-end-btn {
+        margin-top: 4px;
+        padding: 10px 22px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #001830;
+        background: #7fdbff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        box-shadow: 0 2px 0 #3a9ec0;
+      }
+      #game-end-btn:hover {
+        background: #9fe8ff;
+      }
+      #game-end-btn:active {
+        transform: translateY(1px);
+        box-shadow: 0 1px 0 #3a9ec0;
+      }
     </style>
   </head>
   <body>
@@ -60,6 +114,11 @@
       <div><span class="label">FUEL</span> <span id="hud-fuel">████████████</span></div>
       <div><span class="label">JETS</span> <span id="hud-lives">3</span></div>
       <div><span class="label">DIST</span> <span id="hud-dist">00000</span></div>
+    </div>
+    <div id="game-end-overlay" aria-live="polite">
+      <h2 id="game-end-title"></h2>
+      <p id="game-end-msg"></p>
+      <button type="button" id="game-end-btn"></button>
     </div>
     <div id="hint">
       Как в Activision River Raid (1982), только 3D: <strong>W / S</strong> — газ и тормоз по руслу,

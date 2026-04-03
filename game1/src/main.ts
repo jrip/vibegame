@@ -39,8 +39,6 @@ const C = {
   wake: '#a8e8ff',
   bridgeWood: '#704028',
   bridgeRail: '#5a3418',
-  fuelWhite: '#f0f0f0',
-  fuelRed: '#d02028',
   tree: '#1a6a12',
   channelMark: '#f8f878',
 } as const;
@@ -159,6 +157,8 @@ type FuelDepot = {
   key: string;
   destroyed: boolean;
   vis: number[];
+  /** Столб заправки (Three.js), не ECS-renderer */
+  meshes: THREE.Mesh[];
 };
 const depots: FuelDepot[] = [];
 
@@ -174,6 +174,10 @@ const bridges: Bridge[] = [];
 let shootCooldownLeft = 0;
 let enemySpawnTimer = 0;
 let initialized = false;
+/** Ссылка на мир для кнопки оверлея (после init). */
+let uiStateRef: GAME.State | null = null;
+type RunState = 'playing' | 'paused_continue' | 'paused_game_over';
+let runState: RunState = 'playing';
 let score = 0;
 let fuel = 100;
 /** Сколько машин осталось включая текущую (как «три джета» в оригинале). */
@@ -182,8 +186,28 @@ let checkpointZ = 0;
 let extraLifeMilestone = 0;
 let horizonAtmosphereApplied = false;
 
+/** 0…1, плавно «хаотичная» огибающая по длине реки (детерминированно от z). */
+function riverWidthShapeT(z: number): number {
+  const t0 = 0.5 + 0.5 * Math.sin(z * 0.0155 + 0.62);
+  const t1 = 0.5 + 0.5 * Math.sin(z * 0.0368 - 1.05);
+  const t2 = 0.5 + 0.5 * Math.sin(z * 0.061 + 2.33);
+  const t3 = 0.5 + 0.5 * Math.sin(z * 0.094 - 0.28);
+  return 0.38 * t0 + 0.28 * t1 + 0.22 * t2 + 0.12 * t3;
+}
+
+/** Половина ширины воды в точке z (как раньше ~44–100% от макс., но без одной синусоиды). */
 function riverHalfAt(z: number): number {
-  return RIVER_HALF_MAX * (72 + 28 * Math.sin(z * 0.0191 + 1.05)) * (1 / 100);
+  return RIVER_HALF_MAX * (0.44 + 0.56 * riverWidthShapeT(z));
+}
+
+/** Смещение оси реки по X (извилины); амплитуда связана с масштабом русла. */
+function riverCenterXAt(z: number): number {
+  const m =
+    0.48 * Math.sin(z * 0.0131 + 0.15) +
+    0.31 * Math.sin(z * 0.0237 - 0.88) +
+    0.21 * Math.sin(z * 0.0415 + 1.9);
+  const cap = RIVER_HALF_MAX * 0.36;
+  return cap * Math.max(-1, Math.min(1, m));
 }
 
 function applyRiverHorizonAtmosphere(state: GAME.State) {
@@ -266,6 +290,101 @@ function destroyDepotVisuals(state: GAME.State, d: FuelDepot) {
     if (state.exists(v)) state.destroyEntity(v);
   }
   d.vis.length = 0;
+  const sc = getScene(state);
+  for (const m of d.meshes) {
+    sc?.remove(m);
+    m.geometry.dispose();
+    const mat = m.material as THREE.MeshBasicMaterial;
+    mat.map?.dispose();
+    mat.dispose();
+  }
+  d.meshes.length = 0;
+}
+
+const FUEL_DEPOT_W_MUL = 1.5;
+const FUEL_DEPOT_Z_MUL = 3;
+
+/** Вдоль реки: сверху экрана (+Z) → вниз (−Z) читается FUEL; цвета красный / белый / красный / белый. */
+const FUEL_SEGMENTS_ALONG_Z: { ch: string; bandRed: boolean }[] = [
+  { ch: 'F', bandRed: true },
+  { ch: 'U', bandRed: false },
+  { ch: 'E', bandRed: true },
+  { ch: 'L', bandRed: false },
+];
+
+function fuelLetterTexture(ch: string, bandRed: boolean, riverHex: string): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = bandRed ? 'rgba(210, 45, 38, 0.48)' : 'rgba(255, 255, 255, 0.45)';
+  ctx.fillRect(0, 0, size, size);
+  ctx.save();
+  ctx.translate(size * 0.5, size * 0.5);
+  ctx.rotate(Math.PI);
+  ctx.fillStyle = riverHex;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 168px system-ui, \"Segoe UI\", sans-serif';
+  ctx.fillText(ch, 0, 0);
+  ctx.restore();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function addFuelDepotAlongRiver(state: GAME.State, cx: number, cz: number): THREE.Mesh[] {
+  const rc = getRenderingContext(state);
+  const bw = 2.8 * FUEL_DEPOT_W_MUL * S;
+  const bl = 4.2 * FUEL_DEPOT_Z_MUL * S;
+  const bh = 0.55 * S;
+  const segZ = bl / 4;
+  const deckY = -1.62 * S;
+  const riverLetter = C.water;
+  const out: THREE.Mesh[] = [];
+  for (let i = 0; i < 4; i++) {
+    const { ch, bandRed } = FUEL_SEGMENTS_ALONG_Z[i]!;
+    const map = fuelLetterTexture(ch, bandRed, riverLetter);
+    const mat = new THREE.MeshBasicMaterial({
+      map,
+      transparent: true,
+      depthWrite: false,
+      fog: true,
+    });
+    const geom = new THREE.BoxGeometry(bw, bh, segZ);
+    const mesh = new THREE.Mesh(geom, mat);
+    const zi = cz - bl * 0.5 + segZ * (3 - i + 0.5);
+    mesh.position.set(cx, deckY, zi);
+    mesh.renderOrder = 5;
+    rc.scene.add(mesh);
+    out.push(mesh);
+  }
+  return out;
+}
+
+function showGameEndOverlay(kind: 'continue' | 'game_over') {
+  const ov = document.getElementById('game-end-overlay');
+  const title = document.getElementById('game-end-title');
+  const msg = document.getElementById('game-end-msg');
+  const btn = document.getElementById('game-end-btn');
+  if (!ov || !title || !msg || !btn) return;
+  if (kind === 'continue') {
+    title.textContent = 'Джет потерян';
+    msg.textContent = `Осталось машин: ${jetsLeft}. Продолжить с последнего чекпоинта (мост)?`;
+    btn.textContent = 'Продолжить';
+  } else {
+    title.textContent = 'Игра окончена';
+    msg.textContent = 'Самолёты закончились. Начать уровень сначала — сброс очков и прогресса.';
+    btn.textContent = 'Начать сначала';
+  }
+  ov.classList.add('is-visible');
+  btn.focus();
+}
+
+function hideGameEndOverlay() {
+  document.getElementById('game-end-overlay')?.classList.remove('is-visible');
 }
 
 function resetJetsAndProgress(state: GAME.State) {
@@ -287,7 +406,7 @@ function resetJetsAndProgress(state: GAME.State) {
     /* визуалы не пересоздаём при полном сбросе — сессия та же; депо остаётся «срубленным» по визуалу */
   }
   if (planeId >= 0 && state.exists(planeId)) {
-    Body.posX[planeId] = 0;
+    Body.posX[planeId] = riverCenterXAt(0);
     Body.posY[planeId] = 4.8 * S;
     Body.posZ[planeId] = 0;
     Body.velX[planeId] = 0;
@@ -306,9 +425,10 @@ function respawnAtCheckpoint(state: GAME.State) {
   enemySpawnTimer = 1.2;
   fuel = 100;
   if (planeId >= 0 && state.exists(planeId)) {
-    Body.posX[planeId] = 0;
+    const rz = checkpointZ + 8 * S;
+    Body.posX[planeId] = riverCenterXAt(rz);
     Body.posY[planeId] = 4.8 * S;
-    Body.posZ[planeId] = checkpointZ + 8 * S;
+    Body.posZ[planeId] = rz;
     Body.velX[planeId] = 0;
     Body.velY[planeId] = 0;
     Body.velZ[planeId] = 0;
@@ -316,12 +436,24 @@ function respawnAtCheckpoint(state: GAME.State) {
 }
 
 function die(state: GAME.State) {
+  if (runState !== 'playing') return;
   jetsLeft -= 1;
+  if (planeId >= 0 && state.exists(planeId)) {
+    state.addComponent(planeId, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+  }
+  for (const eid of enemyIds) {
+    if (state.exists(eid)) state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+  }
+  for (const mid of missileIds) {
+    if (state.exists(mid)) state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+  }
   if (jetsLeft <= 0) {
-    resetJetsAndProgress(state);
+    runState = 'paused_game_over';
+    showGameEndOverlay('game_over');
     return;
   }
-  respawnAtCheckpoint(state);
+  runState = 'paused_continue';
+  showGameEndOverlay('continue');
 }
 
 function addScore(points: number) {
@@ -333,8 +465,9 @@ function addScore(points: number) {
   }
 }
 
-const DEPOT_RX = 2.2 * S;
-const DEPOT_RZ = 3.2 * S;
+/** Как у широкой баржи: половина по X/Z + запас. */
+const DEPOT_RX = 2.2 * FUEL_DEPOT_W_MUL * S;
+const DEPOT_RZ = 3.2 * FUEL_DEPOT_Z_MUL * S;
 const BRIDGE_HALF_HIT = 0.52;
 const BRIDGE_KILL_Z = 2.4 * S;
 const MISSILE_HIT_R = 1.85 * S;
@@ -369,7 +502,8 @@ function tryMissileWorldHits(state: GAME.State) {
     for (const b of bridges) {
       if (b.destroyed) continue;
       const hw = riverHalfAt(b.z) * BRIDGE_HALF_HIT;
-      if (Math.abs(mz - b.z) < BRIDGE_KILL_Z && Math.abs(mx) < hw) {
+      const rcx = riverCenterXAt(b.z);
+      if (Math.abs(mz - b.z) < BRIDGE_KILL_Z && Math.abs(mx - rcx) < hw) {
         addScore(SCORE_BRIDGE);
         destroyEntity(state, mid);
         destroyBridge(state, b);
@@ -412,11 +546,12 @@ function buildLevel(state: GAME.State) {
   for (let z = Z_SEG_START; z < Z_SEG_END; z += BANK_SLICE) {
     const zc = z + BANK_SLICE * 0.5;
     const half = riverHalfAt(zc);
+    const rcx = riverCenterXAt(zc);
     const hBase = (4.85 + Math.sin(zc * 0.0035) * 1.25) * S;
     const sliceLen = BANK_SLICE * 1.06;
 
-    const innerL = -half - WATER_BANK_INSET;
-    const innerR = half + WATER_BANK_INSET;
+    const innerL = rcx - half - WATER_BANK_INSET;
+    const innerR = rcx + half + WATER_BANK_INSET;
     const wLeft = innerL - -COAST_OUTER;
     const wRight = COAST_OUTER - innerR;
     const cLeft = (-COAST_OUTER + innerL) * 0.5;
@@ -547,20 +682,21 @@ function buildLevel(state: GAME.State) {
       size: `${0.22 * S} ${6.8 * S} ${0.22 * S}`,
       color: C.channelMark,
     });
-    Transform.posX[m] = 0;
+    Transform.posX[m] = riverCenterXAt(z);
     Transform.posY[m] = -1.05 * S;
     Transform.posZ[m] = z;
   }
 
   for (let z = Z_SEG_START + 72 * S; z < Z_SEG_END; z += 200 * S) {
     const half = riverHalfAt(z);
+    const bcx = riverCenterXAt(z);
     const span = half * 2 + 1.8 * S;
     const deck = state.createFromRecipe('renderer', {
       shape: 'box',
       size: `${span} ${0.55 * S} ${3.6 * S}`,
       color: C.bridgeWood,
     });
-    Transform.posX[deck] = 0;
+    Transform.posX[deck] = bcx;
     Transform.posY[deck] = 11.5 * S;
     Transform.posZ[deck] = z;
     const railL = state.createFromRecipe('renderer', {
@@ -568,7 +704,7 @@ function buildLevel(state: GAME.State) {
       size: `${0.22 * S} ${0.4 * S} ${3.7 * S}`,
       color: C.bridgeRail,
     });
-    Transform.posX[railL] = -span * 0.5 + 0.2 * S;
+    Transform.posX[railL] = bcx - span * 0.5 + 0.2 * S;
     Transform.posY[railL] = 11.85 * S;
     Transform.posZ[railL] = z;
     const railR = state.createFromRecipe('renderer', {
@@ -576,7 +712,7 @@ function buildLevel(state: GAME.State) {
       size: `${0.22 * S} ${0.4 * S} ${3.7 * S}`,
       color: C.bridgeRail,
     });
-    Transform.posX[railR] = span * 0.5 - 0.2 * S;
+    Transform.posX[railR] = bcx + span * 0.5 - 0.2 * S;
     Transform.posY[railR] = 11.85 * S;
     Transform.posZ[railR] = z;
 
@@ -584,7 +720,7 @@ function buildLevel(state: GAME.State) {
     const pylW = 1.25 * S;
     const pylGap = 2.85 * S;
     const pylL = state.createFromRecipe('static-part', {
-      pos: `${-(half + pylGap)} ${-0.2 * S} ${z}`,
+      pos: `${bcx - (half + pylGap)} ${-0.2 * S} ${z}`,
       shape: 'box',
       size: `${pylW} ${pylH} ${2.8 * S}`,
       color: C.bridgeWood,
@@ -592,7 +728,7 @@ function buildLevel(state: GAME.State) {
     hazardIds.add(pylL);
     state.addComponent(pylL, CollisionEvents, { activeEvents: 1 });
     const pylR = state.createFromRecipe('static-part', {
-      pos: `${half + pylGap} ${-0.2 * S} ${z}`,
+      pos: `${bcx + half + pylGap} ${-0.2 * S} ${z}`,
       shape: 'box',
       size: `${pylW} ${pylH} ${2.8 * S}`,
       color: C.bridgeWood,
@@ -605,38 +741,24 @@ function buildLevel(state: GAME.State) {
 
   for (let z = Z_SEG_START + 55 * S; z < Z_SEG_END; z += 92 * S) {
     const half = riverHalfAt(z);
+    const dcx = riverCenterXAt(z);
     const lane = (Math.sin(z * 0.11) * 0.55 + Math.sin(z * 0.037) * 0.35) * half * 0.82;
     const key = `dep-${Math.round(z * 10)}`;
-    const base = state.createFromRecipe('renderer', {
-      shape: 'box',
-      size: `${2.8 * S} ${0.55 * S} ${4.2 * S}`,
-      color: C.fuelWhite,
-    });
-    Transform.posX[base] = lane;
-    Transform.posY[base] = -1.62 * S;
-    Transform.posZ[base] = z;
-    const stripe = state.createFromRecipe('renderer', {
-      shape: 'box',
-      size: `${2.85 * S} ${0.18 * S} ${4.25 * S}`,
-      color: C.fuelRed,
-    });
-    Transform.posX[stripe] = lane;
-    Transform.posY[stripe] = -1.38 * S;
-    Transform.posZ[stripe] = z;
-    const house = state.createFromRecipe('renderer', {
-      shape: 'box',
-      size: `${0.75 * S} ${0.85 * S} ${0.85 * S}`,
-      color: C.fuelWhite,
-    });
-    Transform.posX[house] = lane - 0.75 * S;
-    Transform.posY[house] = -1.05 * S;
-    Transform.posZ[house] = z - 1.2 * S;
+    const cx = dcx + lane;
+    const fuelMeshes = addFuelDepotAlongRiver(state, cx, z);
 
-    depots.push({ cx: lane, cz: z, key, destroyed: false, vis: [base, stripe, house] });
+    depots.push({
+      cx,
+      cz: z,
+      key,
+      destroyed: false,
+      vis: [],
+      meshes: fuelMeshes,
+    });
   }
 
   planeId = state.createFromRecipe('kinematic-part', {
-    pos: `0 ${4.8 * S} 0`,
+    pos: `${riverCenterXAt(0)} ${4.8 * S} 0`,
     shape: 'box',
     size: `${1.45 * S} ${0.42 * S} ${2.7 * S}`,
     color: C.planeBody,
@@ -706,6 +828,20 @@ const FlightFixed: GAME.System = {
 
     if (planeId < 0 || !state.exists(planeId)) return;
 
+    if (runState !== 'playing') {
+      state.addComponent(planeId, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+      syncPlaneRiverRaidVis(state);
+      for (const eid of enemyIds) {
+        if (!state.exists(eid)) continue;
+        state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+      }
+      for (const mid of missileIds) {
+        if (!state.exists(mid)) continue;
+        state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+      }
+      return;
+    }
+
     const mx = InputState.moveX[planeId] ?? 0;
     const my = InputState.moveY[planeId] ?? 0;
     /* W / стрелка вверх — ускорение вперёд, S / вниз — замедление (как джойстик RR) */
@@ -717,8 +853,9 @@ const FlightFixed: GAME.System = {
     const px = Body.posX[planeId];
     const pz = Body.posZ[planeId];
     const half = riverHalfAt(pz);
-    const planeXMin = -half + 2.85 * S;
-    const planeXMax = half - 2.85 * S;
+    const rcx = riverCenterXAt(pz);
+    const planeXMin = rcx - half + 2.85 * S;
+    const planeXMax = rcx + half - 2.85 * S;
     if (px <= planeXMin && vx < 0) vx = 0;
     if (px >= planeXMax && vx > 0) vx = 0;
 
@@ -748,10 +885,26 @@ const GameplaySim: GAME.System = {
   last: true,
   update: (state) => {
     if (!initialized || planeId < 0) return;
+    uiStateRef = state;
     applyRiverHorizonAtmosphere(state);
     const dt = state.time.deltaTime;
     const pz = Body.posZ[planeId];
     const px = Body.posX[planeId];
+
+    if (runState !== 'playing') {
+      if (cameraId >= 0 && state.exists(cameraId)) {
+        OrbitCamera.targetYaw[cameraId] = CAM_YAW;
+        OrbitCamera.currentYaw[cameraId] = CAM_YAW;
+        OrbitCamera.targetPitch[cameraId] = CAM_PITCH;
+        OrbitCamera.currentPitch[cameraId] = CAM_PITCH;
+        OrbitCamera.targetDistance[cameraId] = CAM_DIST;
+        OrbitCamera.currentDistance[cameraId] = CAM_DIST;
+        OrbitCamera.sensitivity[cameraId] = 0;
+        OrbitCamera.zoomSensitivity[cameraId] = 0;
+      }
+      updateHud(pz, fuel < 26);
+      return;
+    }
 
     if (cameraId >= 0 && state.exists(cameraId)) {
       OrbitCamera.targetYaw[cameraId] = CAM_YAW;
@@ -801,9 +954,11 @@ const GameplaySim: GAME.System = {
     enemySpawnTimer -= dt;
     if (enemySpawnTimer <= 0) {
       enemySpawnTimer = ENEMY_SPAWN_EVERY;
-      const half = riverHalfAt(pz + FZ * 55 * S);
-      const rx = (Math.random() - 0.5) * (half * 1.65);
-      const ex = Math.min(half - 2.85 * S, Math.max(-half + 2.85 * S, rx));
+      const ezPred = pz + FZ * 55 * S;
+      const half = riverHalfAt(ezPred);
+      const ecx = riverCenterXAt(ezPred);
+      const rx = ecx + (Math.random() - 0.5) * (half * 1.65);
+      const ex = Math.min(ecx + half - 2.85 * S, Math.max(ecx - half + 2.85 * S, rx));
       const ez = pz + FZ * (46 * S + Math.random() * 14 * S);
       const roll = Math.random();
       const kind: EnemyKind = roll < 0.38 ? 'ship' : roll < 0.72 ? 'helo' : 'jet';
@@ -901,5 +1056,19 @@ for (const p of plugins) GAME.withPlugin(p);
 GAME.withSystem(InitRuntime);
 GAME.withSystem(FlightFixed);
 GAME.withSystem(GameplaySim);
+
+document.getElementById('game-end-btn')?.addEventListener('click', () => {
+  const st = uiStateRef;
+  if (!st || runState === 'playing') return;
+  if (runState === 'paused_continue') {
+    runState = 'playing';
+    hideGameEndOverlay();
+    respawnAtCheckpoint(st);
+  } else if (runState === 'paused_game_over') {
+    runState = 'playing';
+    hideGameEndOverlay();
+    resetJetsAndProgress(st);
+  }
+});
 
 void GAME.run();
