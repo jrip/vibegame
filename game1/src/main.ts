@@ -33,7 +33,10 @@ const C = {
   planeTail: '#e8b010',
   planeNose: '#2c2c34',
   planeCockpit: '#3a5080',
-  bullet: '#fff8a0',
+  bullet: '#ffee00',
+  foeRedWing: '#e01818',
+  foePurpleWing: '#a048f0',
+  hostileMissile: '#c838ff',
   bridgeWood: '#704028',
   bridgeRail: '#5a3418',
   tree: '#1a6a12',
@@ -42,17 +45,42 @@ const C = {
 /** Очки как в мануалах/стратегиях River Raid */
 const SCORE_DEPOT = 80;
 const SCORE_BRIDGE = 500;
+const SCORE_FOE_RED = 100;
+const SCORE_FOE_PURPLE = Math.round(SCORE_FOE_RED * 2.5);
 
-const BASE_FORWARD = 20 * S;
-const STRAFE_SPEED = 12 * S * 1.85;
-const MISSILE_SPEED = 58 * S;
-const SHOOT_COOLDOWN = 0.42;
+/** Общий множитель скорости игрока, врагов (сближение), ракет. */
+const SPEED_MUL = 1.15;
+const BASE_FORWARD = 20 * S * SPEED_MUL;
+/** Типичный множитель газа (середина диапазона) — для баланса топлива между заправками. */
+const TYPICAL_FORWARD_MUL = 0.88;
+const STRAFE_SPEED = 12 * S * 1.85 * SPEED_MUL;
+const MISSILE_SPEED = 58 * S * SPEED_MUL;
+const HOSTILE_MISSILE_SPEED = 54 * S * SPEED_MUL;
+/** Реже спавн — не скапливаются вплотную по времени. */
+/** Интервал спавна; +30% чаще ⇒ делим базовый период на 1.3. */
+const ENEMY_SPAWN_EVERY = 4.15 / 1.3;
+/** Враг впереди по +Z: намного дальше по реке от игрока. */
+const ENEMY_SPAWN_AHEAD_MIN = 168 * S;
+const ENEMY_SPAWN_AHEAD_SPREAD = 48 * S;
+/** Ширина русла — в районе фактического Z врага. */
+const ENEMY_SPAWN_RIVER_SAMPLE_AHEAD = 195 * S;
 
 const RIVER_WIDE = 6;
 const RIVER_HALF_MAX = 7.4 * S * RIVER_WIDE;
 /** Масштаб «запаса» суши за пределами макс. половины русла. */
 const BANK_LAND_MUL = 2.15;
 const FZ = 1;
+
+/** Заправки в 2× реже по реке (шаг по Z между ними). */
+const FUEL_DEPOT_Z_STEP = 184 * S;
+/**
+ * Баланс: можно пропустить ровно одну из трёх заправок (два участка подряд без дозаправки).
+ * При |velZ| ≈ BASE_FORWARD·TYPICAL_FORWARD_MUL расход даёт ~FUEL_BALANCE_RESERVE_PCT % к следующей заправке.
+ */
+const FUEL_BALANCE_RESERVE_PCT = 12;
+const FUEL_DRAIN_PER_SEC =
+  (100 - FUEL_BALANCE_RESERVE_PCT) /
+  ((2 * FUEL_DEPOT_Z_STEP) / (BASE_FORWARD * TYPICAL_FORWARD_MUL));
 
 const Z_SEG_START = -150 * S;
 const Z_SEG_END = 3200 * S;
@@ -61,6 +89,129 @@ const BANK_SLICE = 6.5 * S;
 const WATER_BANK_INSET = 1.35 * S;
 /** Половина ширины коллайдера джета по X (recipe `kinematic-part` size 2.9×…×5.4). */
 const PLANE_HITBOX_HALF_X = 1.45 * S;
+/** Половины бокса коллайдера = у spawn; kinematic↔kinematic в Rapier DEFAULT не детектится. */
+const PLANE_COLL_HALF = { x: 1.45 * S, y: 0.42 * S, z: 2.7 * S } as const;
+/** Коллайдеры = половины size из spawn (красный 5.8×1.68×10.8, фиолет 2.9×0.84×5.4). */
+const FOE_RED_COLL_HALF = { x: 2.9 * S, y: 0.84 * S, z: 5.4 * S } as const;
+const FOE_PURP_COLL_HALF = { x: 1.45 * S, y: 0.42 * S, z: 2.7 * S } as const;
+const HOSTILE_MISSILE_COLL_HALF = { x: 0.17 * S, y: 0.17 * S, z: 0.69 * S } as const;
+const PLAYER_MISSILE_HALF = { x: 0.26 * S, y: 0.26 * S, z: 1.25 * S } as const;
+
+function aabbOverlap(
+  ax: number,
+  ay: number,
+  az: number,
+  ahx: number,
+  ahy: number,
+  ahz: number,
+  bx: number,
+  by: number,
+  bz: number,
+  bhx: number,
+  bhy: number,
+  bhz: number,
+): boolean {
+  return (
+    Math.abs(ax - bx) < ahx + bhx &&
+    Math.abs(ay - by) < ahy + bhy &&
+    Math.abs(az - bz) < ahz + bhz
+  );
+}
+
+/** Вражеская ракета + джет: высокая сходимость по Z — дискретный AABB может «пролетать»; запас по шагу и осям. */
+function planeOverlapsHostileMissile(state: GAME.State, hid: number): boolean {
+  if (planeId < 0 || !state.exists(planeId) || !state.exists(hid)) return false;
+  const ax = Body.posX[planeId];
+  const ay = Body.posY[planeId];
+  const az = Body.posZ[planeId];
+  const bx = Body.posX[hid];
+  const by = Body.posY[hid];
+  const bz = Body.posZ[hid];
+  const ph = PLANE_COLL_HALF;
+  const h = HOSTILE_MISSILE_COLL_HALF;
+  const pvz = Body.velZ[planeId];
+  const mvz = Body.velZ[hid];
+  const step = Math.max(state.time.deltaTime, state.time.fixedDeltaTime);
+  const zSlack = Math.abs(pvz - mvz) * step + 3.5 * S;
+  const xySlack = 0.5 * S;
+  return (
+    Math.abs(ax - bx) < ph.x + h.x + xySlack &&
+    Math.abs(ay - by) < ph.y + h.y + xySlack &&
+    Math.abs(az - bz) < ph.z + h.z + zSlack
+  );
+}
+
+/** Столкновение джета с врагами / их ракетами (движок не шлёт TouchedEvent kinematic–kinematic). */
+function tryPlaneVsFoesAndHostileMissiles(state: GAME.State): boolean {
+  if (planeId < 0 || !state.exists(planeId)) return false;
+  const ax = Body.posX[planeId];
+  const ay = Body.posY[planeId];
+  const az = Body.posZ[planeId];
+  const ph = PLANE_COLL_HALF;
+  for (const eid of enemyIds) {
+    if (!state.exists(eid)) continue;
+    const k = enemyKind.get(eid);
+    const h = k === 'foePurple' ? FOE_PURP_COLL_HALF : FOE_RED_COLL_HALF;
+    if (
+      aabbOverlap(ax, ay, az, ph.x, ph.y, ph.z, Body.posX[eid], Body.posY[eid], Body.posZ[eid], h.x, h.y, h.z)
+    ) {
+      die(state);
+      return true;
+    }
+  }
+  for (const hid of hostileMissileIds) {
+    if (!state.exists(hid)) continue;
+    if (planeOverlapsHostileMissile(state, hid)) {
+      die(state);
+      return true;
+    }
+  }
+  return false;
+}
+
+function playerMissileOverlapsEnemy(state: GAME.State, mid: number, eid: number): boolean {
+  const mh = PLAYER_MISSILE_HALF;
+  const k = enemyKind.get(eid);
+  const eh = k === 'foePurple' ? FOE_PURP_COLL_HALF : FOE_RED_COLL_HALF;
+  const mx = Body.posX[mid];
+  const my = Body.posY[mid];
+  const mz = Body.posZ[mid];
+  const ex = Body.posX[eid];
+  const ey = Body.posY[eid];
+  const ez = Body.posZ[eid];
+  const mvz = Body.velZ[mid];
+  const evz = Body.velZ[eid];
+  const step = Math.max(state.time.deltaTime, state.time.fixedDeltaTime);
+  const zSlack = Math.abs(mvz - evz) * step + 3 * S;
+  const xySlack = 0.45 * S;
+  return (
+    Math.abs(mx - ex) < mh.x + eh.x + xySlack &&
+    Math.abs(my - ey) < mh.y + eh.y + xySlack &&
+    Math.abs(mz - ez) < mh.z + eh.z + zSlack
+  );
+}
+
+function tryPlayerMissilesVsEnemies(state: GAME.State) {
+  for (const mid of [...missileIds]) {
+    if (!state.exists(mid)) continue;
+    for (const eid of [...enemyIds]) {
+      if (!state.exists(eid)) continue;
+      if (!playerMissileOverlapsEnemy(state, mid, eid)) continue;
+      const pts = enemyKind.get(eid) === 'foePurple' ? SCORE_FOE_PURPLE : SCORE_FOE_RED;
+      addScore(pts);
+      fuel = Math.min(100, fuel + 6);
+      spawnMissileKillRing(
+        state,
+        (Body.posX[mid] + Body.posX[eid]) * 0.5,
+        (Body.posY[mid] + Body.posY[eid]) * 0.5,
+        (Body.posZ[mid] + Body.posZ[eid]) * 0.5,
+      );
+      destroyEntity(state, mid);
+      destroyEntity(state, eid);
+      break;
+    }
+  }
+}
 
 /**
  * Внешняя грань основного берега (луг/ступени к воде): слева x = -COAST_OUTER.
@@ -114,8 +265,14 @@ function addCoastMistStrip(
 }
 
 const CAM_YAW = Math.PI;
-const CAM_PITCH = 1.38;
+/** Наклон orbit: меньше — больше горизонт впереди (враги «выше» в кадре за счёт перспективы). */
+const CAM_PITCH = 1.08;
 const CAM_DIST = 92 * S * 1.72;
+/**
+ * Точка look-at заметно выше самолёта — он в кадре у нижней четверти экрана.
+ * (Поднимать врагов тем же числом по миру Y нельзя: ломаются AABB с игроком/ракетами.)
+ */
+const CAM_LOOK_OFFSET_Y = 8.6 * S;
 
 /** FOV основной камеры (MainCamera default) — только для запаса суши за экраном, не для обрыва. */
 const MAIN_CAM_FOV_DEG = 75;
@@ -132,6 +289,18 @@ let cameraId = -1;
 
 const hazardIds = new Set<number>();
 const missileIds = new Set<number>();
+const hostileMissileIds = new Set<number>();
+const enemyIds = new Set<number>();
+type EnemyKind = 'foeRed' | 'foePurple';
+const enemyKind = new Map<number, EnemyKind>();
+
+type FoePlaneExtra = {
+  /** Весь самолёт в одном объекте Three.js — копия геометрии игрока + поворот π навстречу. */
+  root: THREE.Group;
+  shootAcc: number;
+  strafePhase: number;
+};
+const foePlaneByEnemy = new Map<number, FoePlaneExtra>();
 
 /** Смещения визуала от Body (как спрайт RR: белый корпус, жёлтые крылья/хвост, тёмный нос). */
 const planeVis: { eid: number; ox: number; oy: number; oz: number; yaw: number }[] = [];
@@ -178,7 +347,7 @@ type Bridge = {
 };
 const bridges: Bridge[] = [];
 
-let shootCooldownLeft = 0;
+let enemySpawnTimer = 1.1;
 let initialized = false;
 /** Ссылка на мир для кнопки оверлея (после init). */
 let uiStateRef: GAME.State | null = null;
@@ -238,6 +407,9 @@ function applyRiverHorizonAtmosphere(state: GAME.State) {
 
 /** Визуал и коллайдер ~×2. Узкий фюзеляж + одно крыло-треугольник (дельта в плане XZ). */
 const PLANE_VIS_SCALE = 2;
+/** Враг красный в 2× крупнее прежнего; фиолетовый в 2× к прежнему «половинному». */
+const FOE_VIS_RED = PLANE_VIS_SCALE * 2;
+const FOE_VIS_PURPLE = PLANE_VIS_SCALE;
 
 function disposePlaneDeltaWing(state: GAME.State) {
   if (!planeDeltaWingMesh) return;
@@ -270,27 +442,13 @@ function buildDeltaWingGeometry(span: number, chord: number, halfThick: number):
   return geo;
 }
 
-function buildPlaneRiverRaidVis(state: GAME.State) {
-  planeVis.length = 0;
-  const V = PLANE_VIS_SCALE;
-  disposePlaneDeltaWing(state);
-
-  const span = 5.35 * S * V;
-  const chord = 2.05 * S * V;
-  const halfT = 0.055 * S * V;
-  const wingGeo = buildDeltaWingGeometry(span, chord, halfT);
-  const wingMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(C.planeWing),
-    side: THREE.DoubleSide,
-    fog: true,
-  });
-  planeDeltaWingMesh = new THREE.Mesh(wingGeo, wingMat);
-  planeDeltaWingMesh.renderOrder = 2;
-  planeDeltaWingOx = 0;
-  planeDeltaWingOy = 0.035 * V * S;
-  planeDeltaWingOz = -0.08 * V * S;
-  getRenderingContext(state).scene.add(planeDeltaWingMesh);
-
+/** Пять боксов самолёта — единственное место с размерами; игрок и враги. */
+function appendRiverRaidPlaneVisBoxes(
+  state: GAME.State,
+  V: number,
+  wingStripHex: string,
+  out: { eid: number; ox: number; oy: number; oz: number; yaw: number }[],
+) {
   const add = (
     ox: number,
     oy: number,
@@ -303,18 +461,40 @@ function buildPlaneRiverRaidVis(state: GAME.State) {
   ) => {
     const id = state.createFromRecipe('renderer', { shape: 'box', size: `${sx} ${sy} ${sz}`, color });
     Renderer.unlit[id] = 1;
-    planeVis.push({ eid: id, ox: ox * S, oy: oy * S, oz: oz * S, yaw });
+    out.push({ eid: id, ox: ox * S, oy: oy * S, oz: oz * S, yaw });
   };
-  /* Узкий длинный фюзеляж над крылом (зазор по Y, не режет крыло) */
   add(0, 0.36 * V, 0, 0.74 * S * V, 0.48 * S * V, 5.05 * S * V, C.planeBody, 0);
-  /* Тёмный нос — только впереди корпуса, без пересечения с белым */
   add(0, 0.36 * V, 3.08 * V, 0.36 * S * V, 0.36 * S * V, 1.0 * S * V, C.planeNose, 0);
-  /* Стекло — сине-серое, чётко над верхом корпуса */
   add(0, 0.72 * V, 0.38 * V, 0.32 * S * V, 0.16 * S * V, 0.95 * S * V, C.planeCockpit, 0);
-  /* ГО — потолще, чтобы с дистанции не читалась жёлтая «нить» */
-  add(0, 0.07 * V, -2.12 * V, 1.65 * S * V, 0.15 * S * V, 0.52 * S * V, C.planeWing, 0);
-  /* Киль над крышкой фюзеляжа, нижний край выше белого — без мерцания */
+  add(0, 0.07 * V, -2.12 * V, 1.65 * S * V, 0.15 * S * V, 0.52 * S * V, wingStripHex, 0);
   add(0, 0.92 * V, -2.18 * V, 0.1 * S * V, 0.55 * S * V, 0.46 * S * V, C.planeTail, 0);
+}
+
+function attachDeltaWingMesh(state: GAME.State, V: number, wingHex: string): THREE.Mesh {
+  const span = 5.35 * S * V;
+  const chord = 2.05 * S * V;
+  const halfT = 0.055 * S * V;
+  const wingGeo = buildDeltaWingGeometry(span, chord, halfT);
+  const wingMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(wingHex),
+    side: THREE.DoubleSide,
+    fog: true,
+  });
+  const delta = new THREE.Mesh(wingGeo, wingMat);
+  delta.renderOrder = 2;
+  getRenderingContext(state).scene.add(delta);
+  return delta;
+}
+
+function buildPlaneRiverRaidVis(state: GAME.State) {
+  planeVis.length = 0;
+  const V = PLANE_VIS_SCALE;
+  disposePlaneDeltaWing(state);
+  planeDeltaWingMesh = attachDeltaWingMesh(state, V, C.planeWing);
+  planeDeltaWingOx = 0;
+  planeDeltaWingOy = 0.035 * V * S;
+  planeDeltaWingOz = -0.08 * V * S;
+  appendRiverRaidPlaneVisBoxes(state, V, C.planeWing, planeVis);
 }
 
 function syncPlaneRiverRaidVis(state: GAME.State) {
@@ -335,9 +515,92 @@ function syncPlaneRiverRaidVis(state: GAME.State) {
   }
 }
 
+/**
+ * Враг: те же числа, что в appendRiverRaidPlaneVisBoxes + дельта, всё в одном Group.
+ * Инстансы ECS для корпуса давали «только крыло» — отдельный Mesh крыла и инстансы в разных проходах depth.
+ */
+function buildFoeMirrorPlaneGroup(state: GAME.State, V: number, wingHex: string): THREE.Group {
+  const root = new THREE.Group();
+  const mkMat = (hex: string) =>
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), fog: true });
+
+  const box = (lx: number, ly: number, lz: number, sx: number, sy: number, sz: number, hex: string) => {
+    const geom = new THREE.BoxGeometry(sx, sy, sz);
+    const mesh = new THREE.Mesh(geom, mkMat(hex));
+    mesh.position.set(lx, ly, lz);
+    root.add(mesh);
+  };
+
+  box(0, 0.36 * V * S, 0, 0.74 * S * V, 0.48 * S * V, 5.05 * S * V, C.planeBody);
+  box(0, 0.36 * V * S, 3.08 * V * S, 0.36 * S * V, 0.36 * S * V, 1.0 * S * V, C.planeNose);
+  box(0, 0.72 * V * S, 0.38 * V * S, 0.32 * S * V, 0.16 * S * V, 0.95 * S * V, C.planeCockpit);
+  box(0, 0.07 * V * S, -2.12 * V * S, 1.65 * S * V, 0.15 * S * V, 0.52 * S * V, wingHex);
+  box(0, 0.92 * V * S, -2.18 * V * S, 0.1 * S * V, 0.55 * S * V, 0.46 * S * V, C.planeTail);
+
+  const span = 5.35 * S * V;
+  const chord = 2.05 * S * V;
+  const halfT = 0.055 * S * V;
+  const wingGeo = buildDeltaWingGeometry(span, chord, halfT);
+  const wingMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(wingHex),
+    side: THREE.DoubleSide,
+    fog: true,
+  });
+  const wing = new THREE.Mesh(wingGeo, wingMat);
+  wing.position.set(0, 0.035 * V * S, -0.08 * V * S);
+  wing.renderOrder = 2;
+  root.add(wing);
+
+  getRenderingContext(state).scene.add(root);
+  return root;
+}
+
+function disposeFoePlaneExtra(state: GAME.State, fe: FoePlaneExtra) {
+  const sc = getRenderingContext(state).scene;
+  sc.remove(fe.root);
+  fe.root.traverse((ch) => {
+    if (ch instanceof THREE.Mesh) {
+      ch.geometry.dispose();
+      (ch.material as THREE.MeshBasicMaterial).dispose();
+    }
+  });
+}
+
+function disposeFoePlaneIfNeeded(state: GAME.State, eid: number) {
+  const fe = foePlaneByEnemy.get(eid);
+  if (!fe) return;
+  disposeFoePlaneExtra(state, fe);
+  foePlaneByEnemy.delete(eid);
+}
+
+function syncFoePlaneVis(state: GAME.State) {
+  for (const [eid, fe] of [...foePlaneByEnemy.entries()]) {
+    if (!state.exists(eid)) {
+      disposeFoePlaneExtra(state, fe);
+      foePlaneByEnemy.delete(eid);
+      continue;
+    }
+    const px = Body.posX[eid];
+    const py = Body.posY[eid];
+    const pz = Body.posZ[eid];
+    fe.root.position.set(px, py, pz);
+    fe.root.rotation.set(0, Math.PI, 0);
+  }
+}
+
+function foeApproachSpeed(state: GAME.State): number {
+  if (planeId < 0 || !state.exists(planeId)) return BASE_FORWARD * 0.78;
+  const vz = Math.abs(Body.velZ[planeId]);
+  return Math.max(BASE_FORWARD * 0.28, Math.min(BASE_FORWARD * 1.18, vz));
+}
+
 function destroyEntity(state: GAME.State, eid: number) {
+  disposeFoePlaneIfNeeded(state, eid);
   if (state.exists(eid)) state.destroyEntity(eid);
   missileIds.delete(eid);
+  hostileMissileIds.delete(eid);
+  enemyIds.delete(eid);
+  enemyKind.delete(eid);
 }
 
 function destroyBridge(state: GAME.State, b: Bridge) {
@@ -644,14 +907,18 @@ function hideGameEndOverlay() {
 
 function resetJetsAndProgress(state: GAME.State) {
   for (const m of [...missileIds]) destroyEntity(state, m);
+  for (const h of [...hostileMissileIds]) destroyEntity(state, h);
+  for (const e of [...enemyIds]) destroyEntity(state, e);
   missileIds.clear();
-  shootCooldownLeft = 0;
+  hostileMissileIds.clear();
+  enemyIds.clear();
+  enemyKind.clear();
+  enemySpawnTimer = 1.2;
   score = 0;
   fuel = 100;
   jetsLeft = 3;
   checkpointZ = 0;
   extraLifeMilestone = 0;
-  shootCooldownLeft = 0;
   for (const d of depots) {
     d.destroyed = false;
     /* визуалы не пересоздаём при полном сбросе — сессия та же; депо остаётся «срубленным» по визуалу */
@@ -670,8 +937,13 @@ function resetJetsAndProgress(state: GAME.State) {
 
 function respawnAtCheckpoint(state: GAME.State) {
   for (const m of [...missileIds]) destroyEntity(state, m);
+  for (const h of [...hostileMissileIds]) destroyEntity(state, h);
+  for (const e of [...enemyIds]) destroyEntity(state, e);
   missileIds.clear();
-  shootCooldownLeft = 0;
+  hostileMissileIds.clear();
+  enemyIds.clear();
+  enemyKind.clear();
+  enemySpawnTimer = 1.2;
   fuel = 100;
   deathMenuDelay = 0;
   if (planeId >= 0 && state.exists(planeId)) {
@@ -694,6 +966,12 @@ function die(state: GAME.State) {
   }
   for (const mid of missileIds) {
     if (state.exists(mid)) state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+  }
+  for (const eid of enemyIds) {
+    if (state.exists(eid)) state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+  }
+  for (const hid of hostileMissileIds) {
+    if (state.exists(hid)) state.addComponent(hid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
   }
   deathMenuDelay = 3;
   if (jetsLeft <= 0) {
@@ -978,7 +1256,7 @@ function buildLevel(state: GAME.State) {
     bridges.push({ z, destroyed: false, pylL, pylR, vis: [deck, railL, railR] });
   }
 
-  for (let z = Z_SEG_START + 55 * S; z < Z_SEG_END; z += 92 * S) {
+  for (let z = Z_SEG_START + 55 * S; z < Z_SEG_END; z += FUEL_DEPOT_Z_STEP) {
     const half = riverHalfAt(z);
     const dcx = riverCenterXAt(z);
     const lane = (Math.sin(z * 0.11) * 0.55 + Math.sin(z * 0.037) * 0.35) * half * 0.82;
@@ -1010,7 +1288,7 @@ function buildLevel(state: GAME.State) {
   const cam = state.createFromRecipe('orbit-camera', {
     'target-distance': `${CAM_DIST}`,
     'target-pitch': String(CAM_PITCH),
-    'offset-y': `${1.45 * S}`,
+    'offset-y': `${CAM_LOOK_OFFSET_Y}`,
     smoothness: '1',
   });
   cameraId = cam;
@@ -1022,6 +1300,9 @@ function buildLevel(state: GAME.State) {
   OrbitCamera.currentPitch[cam] = CAM_PITCH;
   OrbitCamera.targetDistance[cam] = CAM_DIST;
   OrbitCamera.currentDistance[cam] = CAM_DIST;
+  OrbitCamera.offsetX[cam] = 0;
+  OrbitCamera.offsetY[cam] = CAM_LOOK_OFFSET_Y;
+  OrbitCamera.offsetZ[cam] = 0;
   OrbitCamera.sensitivity[cam] = 0;
   OrbitCamera.zoomSensitivity[cam] = 0;
 
@@ -1059,10 +1340,19 @@ const FlightFixed: GAME.System = {
     if (runState !== 'playing') {
       state.addComponent(planeId, SetLinearVelocity, { x: 0, y: 0, z: 0 });
       syncPlaneRiverRaidVis(state);
+      for (const eid of enemyIds) {
+        if (!state.exists(eid)) continue;
+        state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+      }
       for (const mid of missileIds) {
         if (!state.exists(mid)) continue;
         state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
       }
+      for (const hid of hostileMissileIds) {
+        if (!state.exists(hid)) continue;
+        state.addComponent(hid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
+      }
+      syncFoePlaneVis(state);
       return;
     }
 
@@ -1083,10 +1373,26 @@ const FlightFixed: GAME.System = {
 
     syncPlaneRiverRaidVis(state);
 
+    const approach = foeApproachSpeed(state);
+    for (const eid of enemyIds) {
+      if (!state.exists(eid)) continue;
+      let vx = 0;
+      if (enemyKind.get(eid) === 'foePurple') {
+        const fe = foePlaneByEnemy.get(eid);
+        const ph = fe?.strafePhase ?? 0;
+        vx = STRAFE_SPEED * 0.4 * Math.sin(state.time.elapsed * 1.35 + ph);
+      }
+      state.addComponent(eid, SetLinearVelocity, { x: vx, y: 0, z: -FZ * approach });
+    }
     for (const mid of missileIds) {
       if (!state.exists(mid)) continue;
       state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: FZ * MISSILE_SPEED });
     }
+    for (const hid of hostileMissileIds) {
+      if (!state.exists(hid)) continue;
+      state.addComponent(hid, SetLinearVelocity, { x: 0, y: 0, z: -FZ * HOSTILE_MISSILE_SPEED });
+    }
+    syncFoePlaneVis(state);
   },
 };
 
@@ -1110,6 +1416,9 @@ const GameplaySim: GAME.System = {
         OrbitCamera.currentPitch[cameraId] = CAM_PITCH;
         OrbitCamera.targetDistance[cameraId] = CAM_DIST;
         OrbitCamera.currentDistance[cameraId] = CAM_DIST;
+        OrbitCamera.offsetX[cameraId] = 0;
+        OrbitCamera.offsetY[cameraId] = CAM_LOOK_OFFSET_Y;
+        OrbitCamera.offsetZ[cameraId] = 0;
         OrbitCamera.sensitivity[cameraId] = 0;
         OrbitCamera.zoomSensitivity[cameraId] = 0;
       }
@@ -1139,6 +1448,9 @@ const GameplaySim: GAME.System = {
       OrbitCamera.currentPitch[cameraId] = CAM_PITCH;
       OrbitCamera.targetDistance[cameraId] = CAM_DIST;
       OrbitCamera.currentDistance[cameraId] = CAM_DIST;
+      OrbitCamera.offsetX[cameraId] = 0;
+      OrbitCamera.offsetY[cameraId] = CAM_LOOK_OFFSET_Y;
+      OrbitCamera.offsetZ[cameraId] = 0;
       OrbitCamera.sensitivity[cameraId] = 0;
       OrbitCamera.zoomSensitivity[cameraId] = 0;
     }
@@ -1151,8 +1463,9 @@ const GameplaySim: GAME.System = {
       die(state);
       return;
     }
+    if (tryPlaneVsFoesAndHostileMissiles(state)) return;
 
-    fuel -= dt * 2.65;
+    fuel -= dt * FUEL_DRAIN_PER_SEC;
     const lowFuel = fuel < 26;
     if (fuel <= 0) {
       fuel = 0;
@@ -1187,22 +1500,78 @@ const GameplaySim: GAME.System = {
 
     updateHud(pz, lowFuel);
     tryMissileWorldHits(state);
+    tryPlayerMissilesVsEnemies(state);
 
-    shootCooldownLeft = Math.max(0, shootCooldownLeft - dt);
-    if (consumePrimary() && shootCooldownLeft <= 0) {
-      shootCooldownLeft = SHOOT_COOLDOWN;
+    for (const mid of [...missileIds]) {
+      if (!state.exists(mid)) missileIds.delete(mid);
+    }
+    if (consumePrimary() && missileIds.size === 0) {
       const x = Body.posX[planeId];
       const y = Body.posY[planeId];
       const z = Body.posZ[planeId];
       const nose = 3.62 * S * PLANE_VIS_SCALE;
       const m = state.createFromRecipe('kinematic-part', {
         pos: `${x} ${y} ${z + FZ * nose}`,
-        shape: 'sphere',
-        size: `${2.05 * S}`,
+        shape: 'box',
+        size: `${0.52 * S} ${0.52 * S} ${2.5 * S}`,
         color: C.bullet,
       });
       state.addComponent(m, CollisionEvents, { activeEvents: 1 });
       missileIds.add(m);
+    }
+
+    enemySpawnTimer -= dt;
+    if (enemySpawnTimer <= 0) {
+      enemySpawnTimer = ENEMY_SPAWN_EVERY;
+      const purple = Math.random() < 0.5;
+      const V = purple ? FOE_VIS_PURPLE : FOE_VIS_RED;
+      const wing = purple ? C.foePurpleWing : C.foeRedWing;
+      const kind: EnemyKind = purple ? 'foePurple' : 'foeRed';
+      const sx = purple ? 2.9 * S : 5.8 * S;
+      const sy = purple ? 0.84 * S : 1.68 * S;
+      const sz = purple ? 5.4 * S : 10.8 * S;
+      const ezPred = pz + FZ * ENEMY_SPAWN_RIVER_SAMPLE_AHEAD;
+      const half = riverHalfAt(ezPred);
+      const ecx = riverCenterXAt(ezPred);
+      const rx = ecx + (Math.random() - 0.5) * (half * 1.5);
+      const ex = Math.min(ecx + half - 2.85 * S, Math.max(ecx - half + 2.85 * S, rx));
+      const ez = pz + FZ * (ENEMY_SPAWN_AHEAD_MIN + Math.random() * ENEMY_SPAWN_AHEAD_SPREAD);
+      const ey = Body.posY[planeId] + (Math.random() - 0.5) * 0.35 * S;
+      const en = state.createFromRecipe('kinematic-part', {
+        pos: `${ex} ${ey} ${ez}`,
+        shape: 'box',
+        size: `${sx} ${sy} ${sz}`,
+        color: C.planeBody,
+      });
+      state.addComponent(en, CollisionEvents, { activeEvents: 1 });
+      Renderer.visible[en] = 0;
+      enemyIds.add(en);
+      enemyKind.set(en, kind);
+      const root = buildFoeMirrorPlaneGroup(state, V, wing);
+      foePlaneByEnemy.set(en, {
+        root,
+        shootAcc: purple ? 0.2 : 0,
+        strafePhase: Math.random() * Math.PI * 2,
+      });
+    }
+
+    for (const eid of enemyIds) {
+      if (enemyKind.get(eid) !== 'foePurple') continue;
+      const fe = foePlaneByEnemy.get(eid);
+      if (!fe || !state.exists(eid)) continue;
+      fe.shootAcc -= dt;
+      if (fe.shootAcc > 0) continue;
+      fe.shootAcc = 1;
+      const Vp = FOE_VIS_PURPLE;
+      const noseZ = 3.62 * S * Vp;
+      const hm = state.createFromRecipe('kinematic-part', {
+        pos: `${Body.posX[eid]} ${Body.posY[eid]} ${Body.posZ[eid] - FZ * noseZ}`,
+        shape: 'box',
+        size: `${0.34 * S} ${0.34 * S} ${1.38 * S}`,
+        color: C.hostileMissile,
+      });
+      state.addComponent(hm, CollisionEvents, { activeEvents: 1 });
+      hostileMissileIds.add(hm);
     }
 
     for (const mid of [...missileIds]) {
@@ -1213,6 +1582,22 @@ const GameplaySim: GAME.System = {
       const along = FZ * (Body.posZ[mid] - pz);
       if (along > 130 * S) destroyEntity(state, mid);
     }
+    for (const hid of [...hostileMissileIds]) {
+      if (!state.exists(hid)) {
+        hostileMissileIds.delete(hid);
+        continue;
+      }
+      if (FZ * (pz - Body.posZ[hid]) > 95 * S) destroyEntity(state, hid);
+    }
+    for (const eid of [...enemyIds]) {
+      if (!state.exists(eid)) {
+        enemyIds.delete(eid);
+        continue;
+      }
+      if (FZ * (Body.posZ[eid] - pz) < -42 * S) destroyEntity(state, eid);
+    }
+    if (tryPlaneVsFoesAndHostileMissiles(state)) return;
+
     for (const eid of touchedQuery(state.world)) {
       const other = TouchedEvent.other[eid] as number;
 
@@ -1225,8 +1610,40 @@ const GameplaySim: GAME.System = {
         continue;
       }
 
+      if (eid === planeId && enemyIds.has(other)) {
+        die(state);
+        continue;
+      }
+      if (other === planeId && enemyIds.has(eid)) {
+        die(state);
+        continue;
+      }
+
+      if (eid === planeId && hostileMissileIds.has(other)) {
+        die(state);
+        continue;
+      }
+      if (other === planeId && hostileMissileIds.has(eid)) {
+        die(state);
+        continue;
+      }
+
+      if (missileIds.has(eid) && hostileMissileIds.has(other)) {
+        destroyEntity(state, eid);
+        destroyEntity(state, other);
+        continue;
+      }
+      if (missileIds.has(other) && hostileMissileIds.has(eid)) {
+        destroyEntity(state, other);
+        destroyEntity(state, eid);
+        continue;
+      }
+
       if (missileIds.has(eid) && hazardIds.has(other)) destroyEntity(state, eid);
       if (missileIds.has(other) && hazardIds.has(eid)) destroyEntity(state, other);
+
+      if (hostileMissileIds.has(eid) && hazardIds.has(other)) destroyEntity(state, eid);
+      if (hostileMissileIds.has(other) && hazardIds.has(eid)) destroyEntity(state, other);
     }
   },
 };
