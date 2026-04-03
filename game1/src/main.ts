@@ -84,8 +84,25 @@ const FUEL_DRAIN_PER_SEC =
 
 const Z_SEG_START = -150 * S;
 const Z_SEG_END = 3200 * S;
-/** Тонкие срезы вдоль течения. */
-const BANK_SLICE = 6.5 * S;
+/** Тонкие срезы вдоль течения (на ПК); на телефоне шаг больше — меньше коллайдеров и отрисовки. */
+const BANK_SLICE_DENSE = 6.5 * S;
+
+/** Телефон / тач + узкий экран: резать полигоны и перегрузку прозрачностью. `?lite=1` — принудительно. */
+function wantReducedGfx(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const q = new URL(window.location.href).searchParams.get('lite');
+    if (q === '1' || q === 'true') return true;
+  } catch {
+    /* ignore */
+  }
+  if (window.matchMedia?.('(pointer: coarse)').matches) return true;
+  return navigator.maxTouchPoints > 0 && window.innerWidth <= 1024;
+}
+const REDUCED_GFX = wantReducedGfx();
+const RIVER_BANK_SLICE_Z = REDUCED_GFX ? 17 * S : BANK_SLICE_DENSE;
+const COAST_FADE_SLICES_EFFECTIVE = REDUCED_GFX ? 0 : 4;
+const TREES_EACH_BANK_SIDE = REDUCED_GFX ? 1 : 3;
 const WATER_BANK_INSET = 1.35 * S;
 /** Половина ширины коллайдера джета по X (recipe `kinematic-part` size 2.9×…×5.4). */
 const PLANE_HITBOX_HALF_X = 1.45 * S;
@@ -220,7 +237,6 @@ function tryPlayerMissilesVsEnemies(state: GAME.State) {
 const COAST_OUTER =
   RIVER_HALF_MAX + (38 + 9 * RIVER_WIDE) * S * (0.42 * BANK_LAND_MUL + 0.52);
 const COAST_FADE_BAND = 26 * S;
-const COAST_FADE_SLICES = 4;
 const SKY_MIST = '#b8e8f8';
 
 const coastMistMeshes: THREE.Mesh[] = [];
@@ -399,7 +415,7 @@ function applyRiverHorizonAtmosphere(state: GAME.State) {
   }
   for (const cam of threeCameras.values()) {
     if (cam instanceof THREE.PerspectiveCamera) {
-      cam.far = 25000;
+      cam.far = REDUCED_GFX ? 9000 : 25000;
       cam.updateProjectionMatrix();
     }
   }
@@ -1069,14 +1085,14 @@ function buildLevel(state: GAME.State) {
   hazardIds.add(water);
   state.addComponent(water, CollisionEvents, { activeEvents: 1 });
 
-  const fadeW = COAST_FADE_BAND / COAST_FADE_SLICES;
+  const fadeW = COAST_FADE_BAND / 4;
 
-  for (let z = Z_SEG_START; z < Z_SEG_END; z += BANK_SLICE) {
-    const zc = z + BANK_SLICE * 0.5;
+  for (let z = Z_SEG_START; z < Z_SEG_END; z += RIVER_BANK_SLICE_Z) {
+    const zc = z + RIVER_BANK_SLICE_Z * 0.5;
     const half = riverHalfAt(zc);
     const rcx = riverCenterXAt(zc);
     const hBase = (4.85 + Math.sin(zc * 0.0035) * 1.25) * S;
-    const sliceLen = BANK_SLICE * 1.06;
+    const sliceLen = RIVER_BANK_SLICE_Z * 1.06;
 
     const innerL = rcx - half - WATER_BANK_INSET;
     const innerR = rcx + half + WATER_BANK_INSET;
@@ -1168,8 +1184,8 @@ function buildLevel(state: GAME.State) {
     const yFade = groundTop + 0.35 * S + hFade * 0.5;
     const meadowC = hexToLinearColor(C.bankMeadow);
     const skyC = hexToLinearColor(SKY_MIST);
-    for (let fi = 0; fi < COAST_FADE_SLICES; fi++) {
-      const ft = fi / Math.max(1, COAST_FADE_SLICES - 1);
+    for (let fi = 0; fi < COAST_FADE_SLICES_EFFECTIVE; fi++) {
+      const ft = fi / Math.max(1, COAST_FADE_SLICES_EFFECTIVE - 1);
       const col = meadowC.clone().lerp(skyC, ft * 0.9);
       const opacity = 0.07 + ft * 0.74;
       const xl = -COAST_OUTER + (fi + 0.5) * fadeW;
@@ -1178,8 +1194,8 @@ function buildLevel(state: GAME.State) {
       addCoastMistStrip(state, xr, yFade, zc, fadeW * 1.08, hFade, sliceLen, col, opacity);
     }
 
-    for (let t = 0; t < 3; t++) {
-      const tz = zc + (t - 1) * (BANK_SLICE * 0.28);
+    for (let t = 0; t < TREES_EACH_BANK_SIDE; t++) {
+      const tz = zc + (t - 1) * (RIVER_BANK_SLICE_Z * 0.28);
       const tx = innerL - 7 * S - t * 2.5 * S;
       const tr = state.createFromRecipe('renderer', {
         shape: 'box',
@@ -1190,8 +1206,8 @@ function buildLevel(state: GAME.State) {
       Transform.posY[tr] = hBase * 1.12 + 0.85 * S + 0.7 * S + t * 0.2 * S;
       Transform.posZ[tr] = tz;
     }
-    for (let t = 0; t < 3; t++) {
-      const tz = zc + (t - 1) * (BANK_SLICE * 0.28);
+    for (let t = 0; t < TREES_EACH_BANK_SIDE; t++) {
+      const tz = zc + (t - 1) * (RIVER_BANK_SLICE_Z * 0.28);
       const tx = innerR + 7 * S + t * 2.5 * S;
       const tr = state.createFromRecipe('renderer', {
         shape: 'box',
@@ -1395,6 +1411,22 @@ const TouchSteerInput: GAME.System = {
   update: (state) => {
     if (planeId < 0 || !state.exists(planeId)) return;
     if (touchPointerActive) InputState.moveX[planeId] = touchSteerX;
+  },
+};
+
+let gfxTuningApplied = false;
+const ApplyMobileGfxTuning: GAME.System = {
+  group: 'draw',
+  first: true,
+  update(state: GAME.State) {
+    if (gfxTuningApplied || state.headless) return;
+    const gl = getRenderingContext(state).renderer;
+    if (!gl) return;
+    gfxTuningApplied = true;
+    if (REDUCED_GFX) {
+      gl.setPixelRatio(Math.min(1.25, window.devicePixelRatio));
+      gl.shadowMap.enabled = false;
+    }
   },
 };
 
@@ -1741,6 +1773,7 @@ const plugins = DefaultPlugins.filter(
 
 GAME.withoutDefaultPlugins();
 for (const p of plugins) GAME.withPlugin(p);
+GAME.withSystem(ApplyMobileGfxTuning);
 GAME.withSystem(InitRuntime);
 GAME.withSystem(FlightFixed);
 GAME.withSystem(TouchSteerInput);
