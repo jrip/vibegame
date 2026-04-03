@@ -34,29 +34,19 @@ const C = {
   planeNose: '#2c2c34',
   planeCockpit: '#3a5080',
   bullet: '#fff8a0',
-  enemyHelo: '#c018c8',
-  enemyJet: '#9098a8',
-  enemyShip: '#6b3c18',
   bridgeWood: '#704028',
   bridgeRail: '#5a3418',
   tree: '#1a6a12',
 } as const;
 
 /** Очки как в мануалах/стратегиях River Raid */
-const SCORE_HELO = 60;
-const SCORE_SHIP = 30;
-const SCORE_JET = 100;
 const SCORE_DEPOT = 80;
 const SCORE_BRIDGE = 500;
 
 const BASE_FORWARD = 20 * S;
 const STRAFE_SPEED = 12 * S * 1.85;
 const MISSILE_SPEED = 58 * S;
-const ENEMY_HELO_SPEED = 9 * S;
-const ENEMY_SHIP_SPEED = 6.5 * S;
-const ENEMY_JET_SPEED = 11 * S;
 const SHOOT_COOLDOWN = 0.42;
-const ENEMY_SPAWN_EVERY = 2.05;
 
 const RIVER_WIDE = 6;
 const RIVER_HALF_MAX = 7.4 * S * RIVER_WIDE;
@@ -69,6 +59,8 @@ const Z_SEG_END = 3200 * S;
 /** Тонкие срезы вдоль течения. */
 const BANK_SLICE = 6.5 * S;
 const WATER_BANK_INSET = 1.35 * S;
+/** Половина ширины коллайдера джета по X (recipe `kinematic-part` size 2.9×…×5.4). */
+const PLANE_HITBOX_HALF_X = 1.45 * S;
 
 /**
  * Внешняя грань основного берега (луг/ступени к воде): слева x = -COAST_OUTER.
@@ -139,7 +131,6 @@ let planeId = -1;
 let cameraId = -1;
 
 const hazardIds = new Set<number>();
-const enemyIds = new Set<number>();
 const missileIds = new Set<number>();
 
 /** Смещения визуала от Body (как спрайт RR: белый корпус, жёлтые крылья/хвост, тёмный нос). */
@@ -149,9 +140,6 @@ let planeDeltaWingMesh: THREE.Mesh | null = null;
 let planeDeltaWingOx = 0;
 let planeDeltaWingOy = 0;
 let planeDeltaWingOz = 0;
-
-type EnemyKind = 'helo' | 'ship' | 'jet';
-const enemyKind = new Map<number, EnemyKind>();
 
 type FuelDepot = {
   cx: number;
@@ -191,7 +179,6 @@ type Bridge = {
 const bridges: Bridge[] = [];
 
 let shootCooldownLeft = 0;
-let enemySpawnTimer = 0;
 let initialized = false;
 /** Ссылка на мир для кнопки оверлея (после init). */
 let uiStateRef: GAME.State | null = null;
@@ -350,9 +337,7 @@ function syncPlaneRiverRaidVis(state: GAME.State) {
 
 function destroyEntity(state: GAME.State, eid: number) {
   if (state.exists(eid)) state.destroyEntity(eid);
-  enemyIds.delete(eid);
   missileIds.delete(eid);
-  enemyKind.delete(eid);
 }
 
 function destroyBridge(state: GAME.State, b: Bridge) {
@@ -659,12 +644,8 @@ function hideGameEndOverlay() {
 
 function resetJetsAndProgress(state: GAME.State) {
   for (const m of [...missileIds]) destroyEntity(state, m);
-  for (const e of [...enemyIds]) destroyEntity(state, e);
   missileIds.clear();
-  enemyIds.clear();
-  enemyKind.clear();
   shootCooldownLeft = 0;
-  enemySpawnTimer = 1.2;
   score = 0;
   fuel = 100;
   jetsLeft = 3;
@@ -689,12 +670,8 @@ function resetJetsAndProgress(state: GAME.State) {
 
 function respawnAtCheckpoint(state: GAME.State) {
   for (const m of [...missileIds]) destroyEntity(state, m);
-  for (const e of [...enemyIds]) destroyEntity(state, e);
   missileIds.clear();
-  enemyIds.clear();
-  enemyKind.clear();
   shootCooldownLeft = 0;
-  enemySpawnTimer = 1.2;
   fuel = 100;
   deathMenuDelay = 0;
   if (planeId >= 0 && state.exists(planeId)) {
@@ -714,9 +691,6 @@ function die(state: GAME.State) {
   if (planeId >= 0 && state.exists(planeId)) {
     state.addComponent(planeId, SetLinearVelocity, { x: 0, y: 0, z: 0 });
     spawnPlaneDeathRing(state, Body.posX[planeId], Body.posY[planeId], Body.posZ[planeId]);
-  }
-  for (const eid of enemyIds) {
-    if (state.exists(eid)) state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
   }
   for (const mid of missileIds) {
     if (state.exists(mid)) state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
@@ -1085,10 +1059,6 @@ const FlightFixed: GAME.System = {
     if (runState !== 'playing') {
       state.addComponent(planeId, SetLinearVelocity, { x: 0, y: 0, z: 0 });
       syncPlaneRiverRaidVis(state);
-      for (const eid of enemyIds) {
-        if (!state.exists(eid)) continue;
-        state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
-      }
       for (const mid of missileIds) {
         if (!state.exists(mid)) continue;
         state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: 0 });
@@ -1103,15 +1073,7 @@ const FlightFixed: GAME.System = {
     const forward = BASE_FORWARD * speedMul;
 
     /* Камера сзади по +Z: инверсия как у «джойстика вверх» в оригинале на ПК */
-    let vx = -mx * STRAFE_SPEED;
-    const px = Body.posX[planeId];
-    const pz = Body.posZ[planeId];
-    const half = riverHalfAt(pz);
-    const rcx = riverCenterXAt(pz);
-    const planeXMin = rcx - half + 2.85 * S;
-    const planeXMax = rcx + half - 2.85 * S;
-    if (px <= planeXMin && vx < 0) vx = 0;
-    if (px >= planeXMax && vx > 0) vx = 0;
+    const vx = -mx * STRAFE_SPEED;
 
     state.addComponent(planeId, SetLinearVelocity, {
       x: vx,
@@ -1121,12 +1083,6 @@ const FlightFixed: GAME.System = {
 
     syncPlaneRiverRaidVis(state);
 
-    for (const eid of enemyIds) {
-      if (!state.exists(eid)) continue;
-      const k = enemyKind.get(eid);
-      const sp = k === 'ship' ? ENEMY_SHIP_SPEED : k === 'jet' ? ENEMY_JET_SPEED : ENEMY_HELO_SPEED;
-      state.addComponent(eid, SetLinearVelocity, { x: 0, y: 0, z: -FZ * sp });
-    }
     for (const mid of missileIds) {
       if (!state.exists(mid)) continue;
       state.addComponent(mid, SetLinearVelocity, { x: 0, y: 0, z: FZ * MISSILE_SPEED });
@@ -1187,6 +1143,15 @@ const GameplaySim: GAME.System = {
       OrbitCamera.zoomSensitivity[cameraId] = 0;
     }
 
+    const halfR = riverHalfAt(pz);
+    const rcxR = riverCenterXAt(pz);
+    const innerL = rcxR - halfR - WATER_BANK_INSET;
+    const innerR = rcxR + halfR + WATER_BANK_INSET;
+    if (px - PLANE_HITBOX_HALF_X <= innerL || px + PLANE_HITBOX_HALF_X >= innerR) {
+      die(state);
+      return;
+    }
+
     fuel -= dt * 2.65;
     const lowFuel = fuel < 26;
     if (fuel <= 0) {
@@ -1240,34 +1205,6 @@ const GameplaySim: GAME.System = {
       missileIds.add(m);
     }
 
-    enemySpawnTimer -= dt;
-    if (enemySpawnTimer <= 0) {
-      enemySpawnTimer = ENEMY_SPAWN_EVERY;
-      const ezPred = pz + FZ * 55 * S;
-      const half = riverHalfAt(ezPred);
-      const ecx = riverCenterXAt(ezPred);
-      const rx = ecx + (Math.random() - 0.5) * (half * 1.65);
-      const ex = Math.min(ecx + half - 2.85 * S, Math.max(ecx - half + 2.85 * S, rx));
-      const ez = pz + FZ * (46 * S + Math.random() * 14 * S);
-      const roll = Math.random();
-      const kind: EnemyKind = roll < 0.38 ? 'ship' : roll < 0.72 ? 'helo' : 'jet';
-      const isShip = kind === 'ship';
-      const ey = isShip ? -1.55 * S : kind === 'jet' ? Body.posY[planeId] + 1.1 * S + Math.random() * 0.6 * S : Body.posY[planeId] + (Math.random() - 0.5) * 0.5 * S;
-      const col = kind === 'ship' ? C.enemyShip : kind === 'jet' ? C.enemyJet : C.enemyHelo;
-      const sx = isShip ? 2.5 * S : kind === 'jet' ? 1.65 * S : 1.85 * S;
-      const sy = isShip ? 0.38 * S : kind === 'jet' ? 0.42 * S : 0.48 * S;
-      const sz = isShip ? 3.5 * S : kind === 'jet' ? 2.15 * S : 2 * S;
-      const en = state.createFromRecipe('kinematic-part', {
-        pos: `${ex} ${ey} ${ez}`,
-        shape: 'box',
-        size: `${sx} ${sy} ${sz}`,
-        color: col,
-      });
-      state.addComponent(en, CollisionEvents, { activeEvents: 1 });
-      enemyIds.add(en);
-      enemyKind.set(en, kind);
-    }
-
     for (const mid of [...missileIds]) {
       if (!state.exists(mid)) {
         missileIds.delete(mid);
@@ -1276,15 +1213,6 @@ const GameplaySim: GAME.System = {
       const along = FZ * (Body.posZ[mid] - pz);
       if (along > 130 * S) destroyEntity(state, mid);
     }
-    for (const eid of [...enemyIds]) {
-      if (!state.exists(eid)) {
-        enemyIds.delete(eid);
-        continue;
-      }
-      const along = FZ * (Body.posZ[eid] - pz);
-      if (along < -45 * S) destroyEntity(state, eid);
-    }
-
     for (const eid of touchedQuery(state.world)) {
       const other = TouchedEvent.other[eid] as number;
 
@@ -1294,44 +1222,6 @@ const GameplaySim: GAME.System = {
       }
       if (other === planeId && hazardIds.has(eid)) {
         die(state);
-        continue;
-      }
-
-      if (eid === planeId && enemyIds.has(other)) {
-        die(state);
-        continue;
-      }
-      if (other === planeId && enemyIds.has(eid)) {
-        die(state);
-        continue;
-      }
-
-      if (missileIds.has(eid) && enemyIds.has(other)) {
-        const k = enemyKind.get(other);
-        addScore(k === 'ship' ? SCORE_SHIP : k === 'jet' ? SCORE_JET : SCORE_HELO);
-        fuel = Math.min(100, fuel + 6);
-        spawnMissileKillRing(
-          state,
-          (Body.posX[eid] + Body.posX[other]) * 0.5,
-          (Body.posY[eid] + Body.posY[other]) * 0.5,
-          (Body.posZ[eid] + Body.posZ[other]) * 0.5,
-        );
-        destroyEntity(state, eid);
-        destroyEntity(state, other);
-        continue;
-      }
-      if (missileIds.has(other) && enemyIds.has(eid)) {
-        const k = enemyKind.get(eid);
-        addScore(k === 'ship' ? SCORE_SHIP : k === 'jet' ? SCORE_JET : SCORE_HELO);
-        fuel = Math.min(100, fuel + 6);
-        spawnMissileKillRing(
-          state,
-          (Body.posX[eid] + Body.posX[other]) * 0.5,
-          (Body.posY[eid] + Body.posY[other]) * 0.5,
-          (Body.posZ[eid] + Body.posZ[other]) * 0.5,
-        );
-        destroyEntity(state, other);
-        destroyEntity(state, eid);
         continue;
       }
 
