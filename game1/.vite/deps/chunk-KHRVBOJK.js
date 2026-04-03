@@ -1,0 +1,42 @@
+import {
+  H,
+  r,
+  s
+} from "./chunk-57T52AMV.js";
+
+// node_modules/vibegame/dist/plugins/transforms/plugin.js
+var m = {
+  systems: [H],
+  components: {
+    Transform: r,
+    WorldTransform: s
+  },
+  config: {
+    defaults: {
+      transform: {
+        rotW: 1,
+        scaleX: 1,
+        scaleY: 1,
+        scaleZ: 1
+      },
+      "world-transform": {
+        rotW: 1,
+        scaleX: 1,
+        scaleY: 1,
+        scaleZ: 1
+      }
+    },
+    validations: [
+      {
+        condition: (n, r2) => "world-transform" in r2,
+        warning: `"world-transform" is read-only.
+  Use "transform" for local transforms, or "body" for physics objects`
+      }
+    ]
+  }
+};
+
+export {
+  m
+};
+//# sourceMappingURL=chunk-KHRVBOJK.js.map

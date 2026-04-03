@@ -1,0 +1,269 @@
+import {
+  s as s2
+} from "./chunk-57T52AMV.js";
+import {
+  C,
+  D,
+  G,
+  H,
+  I,
+  L,
+  O,
+  P,
+  T,
+  U,
+  W,
+  c,
+  n,
+  p,
+  r,
+  s,
+  t,
+  v,
+  w,
+  x,
+  z
+} from "./chunk-QL5YCE4U.js";
+import {
+  defineQuery
+} from "./chunk-4ERPUZ7I.js";
+import {
+  Color,
+  DirectionalLight,
+  HemisphereLight,
+  Matrix4,
+  Quaternion,
+  Vector3
+} from "./chunk-7L7XMRHS.js";
+
+// node_modules/vibegame/dist/plugins/rendering/operations.js
+var m = new Matrix4();
+var M = new Vector3();
+var A = new Quaternion();
+var l = new Vector3();
+var N = defineQuery([r, s2]);
+function L2(o, e, r2 = false) {
+  const i = r2 ? o.unlitMeshPools : o.meshPools, s3 = r2 ? o.unlitMaterial : o.material;
+  let a = i.get(e);
+  if (!a) {
+    const n2 = o.geometries.get(e);
+    if (!n2) return null;
+    a = x(n2, s3), i.set(e, a), o.scene.add(a);
+  }
+  return a;
+}
+function D2(o, e, r2, i, s3 = false) {
+  let a = r2.entityInstances.get(e);
+  if (!a) {
+    let n2 = O(o, m);
+    if (n2 === null) {
+      if (r2.totalInstanceCount >= H)
+        throw new Error(
+          `Maximum total instances (${H}) exceeded. Cannot render entity ${e}. Consider reducing the number of rendered objects.`
+        );
+      const c2 = n.shape[e], d = r2.geometries.get(c2);
+      if (!d) return o;
+      const I3 = s3 ? r2.unlitMeshPools : r2.meshPools, w2 = s3 ? r2.unlitMaterial : r2.material;
+      if (o = T(o, d, w2, r2.scene), I3.set(c2, o), n2 = O(o, m), n2 === null) return o;
+    }
+    a = { poolId: n.shape[e], instanceId: n2, unlit: s3 }, r2.entityInstances.set(e, a), r2.totalInstanceCount++, !r2.hasShownPerformanceWarning && r2.totalInstanceCount >= P && (console.warn(
+      `Performance warning: ${r2.totalInstanceCount} rendered instances. Consider optimizing your scene or reducing object count for better performance.`
+    ), r2.hasShownPerformanceWarning = true);
+  }
+  if (i.hasComponent(e, s2)) {
+    if (M.set(
+      s2.posX[e],
+      s2.posY[e],
+      s2.posZ[e]
+    ), A.set(
+      s2.rotX[e],
+      s2.rotY[e],
+      s2.rotZ[e],
+      s2.rotW[e]
+    ), l.set(
+      s2.scaleX[e],
+      s2.scaleY[e],
+      s2.scaleZ[e]
+    ), a.poolId === w.SPHERE) {
+      const c2 = n.sizeX[e] / 2;
+      l.x *= c2, l.y *= c2, l.z *= c2;
+    } else
+      l.x *= n.sizeX[e], l.y *= n.sizeY[e], l.z *= n.sizeZ[e];
+    m.compose(M, A, l), o.setMatrixAt(a.instanceId, m), o.instanceMatrix.needsUpdate = true;
+    const n2 = new Color(n.color[e]);
+    o.setColorAt(a.instanceId, n2), o.instanceColor && (o.instanceColor.needsUpdate = true);
+  }
+  return o;
+}
+function Y(o, e, r2) {
+  const i = r2.entityInstances.get(e);
+  if (i) {
+    const s3 = new Matrix4();
+    s3.makeScale(0, 0, 0), o.setMatrixAt(i.instanceId, s3), o.instanceMatrix.needsUpdate = true;
+  }
+}
+function Z(o, e) {
+  const r2 = N(e.world);
+  let i = null;
+  for (const I3 of r2) {
+    i = I3;
+    break;
+  }
+  if (i === null) return;
+  const s3 = o.lights.directional;
+  if (!s3) return;
+  const a = new Vector3(
+    s2.posX[i],
+    s2.posY[i],
+    s2.posZ[i]
+  ), n2 = s3.shadow.camera, c2 = a.clone().add(
+    U.LIGHT_DIRECTION.clone().multiplyScalar(
+      U.LIGHT_DISTANCE
+    )
+  );
+  s3.position.copy(c2), s3.target.position.copy(a), s3.target.updateMatrixWorld();
+  const d = U.CAMERA_RADIUS;
+  n2.left = -d, n2.right = d, n2.top = d, n2.bottom = -d, n2.near = U.NEAR_PLANE, n2.far = U.FAR_PLANE, n2.position.copy(c2), n2.lookAt(a), n2.updateProjectionMatrix(), n2.updateMatrixWorld();
+}
+
+// node_modules/vibegame/dist/plugins/rendering/systems.js
+var X = defineQuery([n]);
+var Y2 = defineQuery([s]);
+var Z2 = defineQuery([c]);
+var I2 = defineQuery([r, s2]);
+var _ = defineQuery([r]);
+var E = defineQuery([t]);
+var B = {
+  group: "draw",
+  update(e) {
+    if (e.headless) return;
+    const o = p(e);
+    for (const [r2, s3] of o.entityInstances)
+      if (!e.exists(r2)) {
+        const t2 = (s3.unlit ? o.unlitMeshPools : o.meshPools).get(s3.poolId);
+        t2 && Y(t2, r2, o), o.entityInstances.delete(r2), o.totalInstanceCount--;
+      }
+    const n2 = X(e.world);
+    for (const r2 of n2) {
+      const s3 = n.unlit[r2] === 1;
+      let i = L2(o, n.shape[r2], s3);
+      if (i) {
+        if (n.visible[r2] !== 1) {
+          Y(i, r2, o);
+          continue;
+        }
+        i = D2(i, r2, o, e, s3);
+      }
+    }
+    Z(o, e);
+  }
+};
+var J = {
+  group: "draw",
+  update(e) {
+    if (e.headless) return;
+    const o = p(e), n2 = W(e);
+    if (!n2) return;
+    const r2 = Y2(e.world);
+    for (const i of r2) {
+      let t2 = o.lights.ambient;
+      t2 || (t2 = new HemisphereLight(), n2.add(t2), o.lights.ambient = t2), t2.color.setHex(s.skyColor[i]), t2.groundColor.setHex(s.groundColor[i]), t2.intensity = s.intensity[i];
+    }
+    const s3 = Z2(e.world);
+    for (const i of s3) {
+      let t2 = o.lights.directional;
+      t2 || (t2 = new DirectionalLight(), t2.castShadow = true, n2.add(t2), n2.add(t2.target), o.lights.directional = t2), t2.color.setHex(c.color[i]), t2.intensity = c.intensity[i], c.castShadow[i] === 1 ? (t2.castShadow = true, t2.shadow.mapSize.width = c.shadowMapSize[i], t2.shadow.mapSize.height = c.shadowMapSize[i]) : t2.castShadow = false;
+      const M2 = I2(e.world);
+      let m2 = null;
+      for (const f of M2) {
+        m2 = f;
+        break;
+      }
+      if (m2 !== null) {
+        const f = new Vector3(
+          s2.posX[m2],
+          s2.posY[m2],
+          s2.posZ[m2]
+        ), b = new Vector3(
+          c.directionX[i],
+          c.directionY[i],
+          c.directionZ[i]
+        ).normalize(), S = f.clone().add(
+          b.multiplyScalar(c.distance[i])
+        );
+        t2.position.copy(S), t2.target.position.copy(f), t2.target.updateMatrixWorld();
+        const c2 = t2.shadow.camera, h = U.CAMERA_RADIUS;
+        c2.left = -h, c2.right = h, c2.top = h, c2.bottom = -h, c2.near = U.NEAR_PLANE, c2.far = U.FAR_PLANE, c2.position.copy(S), c2.lookAt(f), c2.updateProjectionMatrix(), c2.updateMatrixWorld();
+      }
+    }
+  }
+};
+var K = {
+  group: "draw",
+  update(e) {
+    if (e.headless) return;
+    const o = I2(e.world);
+    for (const n2 of o) {
+      let r2 = C.get(n2);
+      r2 || (r2 = I(
+        n2,
+        e,
+        r.projection[n2],
+        r.fov[n2],
+        r.orthoSize[n2]
+      )), r2.position.set(
+        s2.posX[n2],
+        s2.posY[n2],
+        s2.posZ[n2]
+      ), r2.quaternion.set(
+        s2.rotX[n2],
+        s2.rotY[n2],
+        s2.rotZ[n2],
+        s2.rotW[n2]
+      ), v(r2, n2, e);
+    }
+  }
+};
+var $ = {
+  group: "draw",
+  last: true,
+  setup(e) {
+    if (e.headless) return;
+    const o = E(e.world);
+    if (o.length === 0) return;
+    const n2 = o[0], r2 = z(n2);
+    if (!r2) return;
+    const s3 = t.clearColor[n2], i = G(r2, s3), t2 = p(e);
+    t2.renderer = i, t2.canvas = r2, window.addEventListener(
+      "resize",
+      () => D(e, i)
+    );
+  },
+  update(e) {
+    if (e.headless) return;
+    const o = p(e);
+    if (!o.renderer) return;
+    const n2 = W(e);
+    if (!n2) return;
+    const r2 = _(e.world);
+    if (r2.length === 0) return;
+    const s3 = r2[0], i = C.get(s3);
+    i && o.renderer.render(n2, i);
+  },
+  dispose(e) {
+    if (e.headless) return;
+    const o = p(e);
+    o.renderer && (o.renderer.dispose(), o.renderer = void 0, o.canvas = void 0);
+    const n2 = E(e.world);
+    for (const r2 of n2)
+      L(r2);
+  }
+};
+
+export {
+  B,
+  J,
+  K,
+  $
+};
+//# sourceMappingURL=chunk-K525DQOG.js.map

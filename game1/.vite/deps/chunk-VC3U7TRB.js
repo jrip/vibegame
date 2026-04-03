@@ -1,0 +1,255 @@
+import {
+  p
+} from "./chunk-QL5YCE4U.js";
+import {
+  Types,
+  defineComponent,
+  defineQuery
+} from "./chunk-4ERPUZ7I.js";
+
+// node_modules/vibegame/dist/plugins/input/components.js
+var i = defineComponent({
+  moveX: Types.f32,
+  moveY: Types.f32,
+  moveZ: Types.f32,
+  lookX: Types.f32,
+  lookY: Types.f32,
+  scrollDelta: Types.f32,
+  jump: Types.ui8,
+  primaryAction: Types.ui8,
+  secondaryAction: Types.ui8,
+  leftMouse: Types.ui8,
+  rightMouse: Types.ui8,
+  middleMouse: Types.ui8,
+  jumpBufferTime: Types.f32,
+  primaryBufferTime: Types.f32,
+  secondaryBufferTime: Types.f32
+});
+
+// node_modules/vibegame/dist/plugins/input/config.js
+var e = {
+  mappings: {
+    moveForward: ["KeyW", "ArrowUp"],
+    moveBackward: ["KeyS", "ArrowDown"],
+    moveLeft: ["KeyA", "ArrowLeft"],
+    moveRight: ["KeyD", "ArrowRight"],
+    moveUp: ["KeyE"],
+    moveDown: ["KeyQ"],
+    jump: ["Space"],
+    primaryAction: ["MouseLeft"],
+    secondaryAction: ["MouseRight"]
+  },
+  bufferWindow: 100,
+  gracePeriods: {
+    coyoteTime: 100,
+    landingBuffer: 50
+  },
+  mouseSensitivity: {
+    look: 0.5,
+    scroll: 0.01
+  }
+};
+
+// node_modules/vibegame/dist/plugins/input/utils.js
+var n = {
+  keys: /* @__PURE__ */ new Set(),
+  mouseButtons: /* @__PURE__ */ new Set(),
+  mouseDeltaX: 0,
+  mouseDeltaY: 0,
+  scrollDelta: 0
+};
+var s = {
+  jump: {
+    lastPressTime: 0,
+    lastReleaseTime: 0,
+    lastConsumeTime: 0,
+    isPressed: false
+  },
+  primary: {
+    lastPressTime: 0,
+    lastReleaseTime: 0,
+    lastConsumeTime: 0,
+    isPressed: false
+  },
+  secondary: {
+    lastPressTime: 0,
+    lastReleaseTime: 0,
+    lastConsumeTime: 0,
+    isPressed: false
+  }
+};
+var l = null;
+var r = null;
+function d(e2) {
+  return e2 instanceof HTMLCanvasElement ? l === null || e2 === l : false;
+}
+function p2(e2) {
+  return e2 instanceof HTMLCanvasElement && e2 === r;
+}
+function y(e2) {
+  r && (n.keys.add(e2.code), e2.code === "Space" && (e2.preventDefault(), s.jump.isPressed || (s.jump.lastPressTime = performance.now(), s.jump.isPressed = true)));
+}
+function v(e2) {
+  r && (n.keys.delete(e2.code), e2.code === "Space" && (s.jump.lastReleaseTime = performance.now(), s.jump.isPressed = false));
+}
+function E(e2) {
+  n.mouseButtons.add(e2.button), e2.button === 0 && !s.primary.isPressed ? (s.primary.lastPressTime = performance.now(), s.primary.isPressed = true) : e2.button === 2 && (e2.preventDefault(), s.secondary.isPressed || (s.secondary.lastPressTime = performance.now(), s.secondary.isPressed = true));
+}
+function C(e2) {
+  n.mouseButtons.delete(e2.button), e2.button === 0 ? (s.primary.lastReleaseTime = performance.now(), s.primary.isPressed = false) : e2.button === 2 && (s.secondary.lastReleaseTime = performance.now(), s.secondary.isPressed = false);
+}
+function k(e2) {
+  n.mouseDeltaX += e2.movementX, n.mouseDeltaY += e2.movementY;
+}
+function M(e2) {
+  n.scrollDelta += e2.deltaY * e.mouseSensitivity.scroll, e2.preventDefault();
+}
+function b(e2) {
+  e2.preventDefault();
+}
+function w(e2) {
+  d(e2.target) && (r = e2.target);
+}
+function T(e2) {
+  e2.target === r && (r = null, B());
+}
+function P(e2) {
+  d(e2.target) && (e2.target.tabIndex = e2.target.tabIndex === -1 ? 0 : e2.target.tabIndex, e2.target.focus(), E(e2));
+}
+function D(e2) {
+  r && C(e2);
+}
+function g(e2) {
+  p2(e2.target) && k(e2);
+}
+function h(e2) {
+  p2(e2.target) && M(e2);
+}
+function L(e2) {
+  r && b(e2);
+}
+function x(e2) {
+  l = e2, e2 === null && (r = null);
+}
+function I(e2) {
+  r = e2;
+}
+function Y() {
+  typeof window > "u" || (document.addEventListener("mousedown", P, true), document.addEventListener("mouseup", D, true), document.addEventListener("mousemove", g, true), document.addEventListener("wheel", h, {
+    passive: false,
+    capture: true
+  }), document.addEventListener("contextmenu", L, true), document.addEventListener("focusin", w, true), document.addEventListener("focusout", T, true), window.addEventListener("keydown", y), window.addEventListener("keyup", v));
+}
+function A() {
+  typeof window > "u" || (document.removeEventListener("mousedown", P, true), document.removeEventListener("mouseup", D, true), document.removeEventListener("mousemove", g, true), document.removeEventListener("wheel", h, true), document.removeEventListener("contextmenu", L, true), document.removeEventListener("focusin", w, true), document.removeEventListener("focusout", T, true), window.removeEventListener("keydown", y), window.removeEventListener("keyup", v), l = null, r = null);
+}
+function f(e2, u) {
+  let a = 0;
+  for (const i2 of e2)
+    n.keys.has(i2) && (a += 1);
+  for (const i2 of u)
+    n.keys.has(i2) && (a -= 1);
+  return a;
+}
+function m(e2, u) {
+  const a = performance.now();
+  return e2.lastPressTime <= e2.lastConsumeTime ? false : a - e2.lastPressTime <= u;
+}
+function c(e2) {
+  return m(e2, e.bufferWindow) ? (e2.lastConsumeTime = performance.now(), true) : false;
+}
+function F(e2) {
+  const u = e.mouseSensitivity;
+  i.moveX[e2] = f(
+    e.mappings.moveRight,
+    e.mappings.moveLeft
+  ), i.moveY[e2] = f(
+    e.mappings.moveForward,
+    e.mappings.moveBackward
+  ), i.moveZ[e2] = f(
+    e.mappings.moveUp,
+    e.mappings.moveDown
+  ), i.lookX[e2] = n.mouseDeltaX * u.look, i.lookY[e2] = n.mouseDeltaY * u.look, i.scrollDelta[e2] = n.scrollDelta, i.jump[e2] = m(
+    s.jump,
+    e.bufferWindow
+  ) ? 1 : 0, i.primaryAction[e2] = m(
+    s.primary,
+    e.bufferWindow
+  ) ? 1 : 0, i.secondaryAction[e2] = m(
+    s.secondary,
+    e.bufferWindow
+  ) ? 1 : 0, i.leftMouse[e2] = n.mouseButtons.has(0) ? 1 : 0, i.rightMouse[e2] = n.mouseButtons.has(2) ? 1 : 0, i.middleMouse[e2] = n.mouseButtons.has(1) ? 1 : 0, i.jumpBufferTime[e2] = s.jump.lastPressTime, i.primaryBufferTime[e2] = s.primary.lastPressTime, i.secondaryBufferTime[e2] = s.secondary.lastPressTime;
+}
+function j() {
+  n.mouseDeltaX = 0, n.mouseDeltaY = 0, n.scrollDelta = 0;
+}
+function B() {
+  n.keys.clear(), n.mouseButtons.clear(), j();
+  const e2 = performance.now();
+  s.jump = {
+    lastPressTime: 0,
+    lastReleaseTime: e2,
+    lastConsumeTime: e2,
+    isPressed: false
+  }, s.primary = {
+    lastPressTime: 0,
+    lastReleaseTime: e2,
+    lastConsumeTime: e2,
+    isPressed: false
+  }, s.secondary = {
+    lastPressTime: 0,
+    lastReleaseTime: e2,
+    lastConsumeTime: e2,
+    isPressed: false
+  };
+}
+function X() {
+  return c(s.jump);
+}
+function W() {
+  return c(s.primary);
+}
+function U() {
+  return c(s.secondary);
+}
+function H() {
+  return r;
+}
+
+// node_modules/vibegame/dist/plugins/input/systems.js
+var l2 = defineQuery([i]);
+var E2 = {
+  group: "simulation",
+  setup: () => {
+    Y(), B();
+  },
+  update: (t) => {
+    const e2 = H(), n2 = p(t);
+    if (!e2 || !n2.canvas || n2.canvas !== e2)
+      return;
+    const r2 = l2(t.world);
+    for (const s2 of r2)
+      F(s2);
+    j();
+  },
+  dispose: () => {
+    A(), B();
+  }
+};
+
+export {
+  i,
+  e,
+  E,
+  C,
+  k,
+  M,
+  x,
+  I,
+  X,
+  W,
+  U,
+  H,
+  E2
+};
+//# sourceMappingURL=chunk-VC3U7TRB.js.map

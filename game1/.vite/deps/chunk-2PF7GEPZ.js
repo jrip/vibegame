@@ -1,0 +1,154 @@
+import {
+  Ao,
+  Ho,
+  Io,
+  M,
+  Mo,
+  O,
+  Oo,
+  Po,
+  Qo,
+  R,
+  Uo,
+  V,
+  V2,
+  Vo,
+  X,
+  Y,
+  Yo,
+  Z,
+  _o,
+  a,
+  c,
+  c2,
+  d,
+  g,
+  h,
+  ho,
+  i2 as i,
+  l,
+  m,
+  p,
+  r,
+  u,
+  v,
+  x,
+  xo,
+  y
+} from "./chunk-K753QHTE.js";
+
+// node_modules/vibegame/dist/plugins/physics/plugin.js
+var F = {
+  initialize: ho,
+  systems: [
+    xo,
+    Yo,
+    Ao,
+    M,
+    _o,
+    V2,
+    O,
+    Io,
+    Qo,
+    Mo,
+    Oo,
+    Vo,
+    Po,
+    Uo,
+    Ho
+  ],
+  recipes: [i, r, c2],
+  components: {
+    PhysicsWorld: a,
+    Body: c,
+    Collider: l,
+    CharacterController: u,
+    CharacterMovement: p,
+    InterpolatedTransform: m,
+    CollisionEvents: v,
+    TouchedEvent: d,
+    TouchEndedEvent: Y,
+    KinematicMove: y,
+    KinematicRotate: R,
+    ApplyForce: X,
+    ApplyImpulse: h,
+    ApplyTorque: Z,
+    ApplyAngularImpulse: V,
+    SetLinearVelocity: g,
+    SetAngularVelocity: x
+  },
+  config: {
+    defaults: {
+      body: {
+        type: 0,
+        // Fixed/Static
+        mass: 1,
+        gravityScale: 1,
+        rotW: 1,
+        eulerX: 0,
+        eulerY: 0,
+        eulerZ: 0
+      },
+      collider: {
+        shape: 0,
+        // Box
+        sizeX: 1,
+        sizeY: 1,
+        sizeZ: 1,
+        radius: 0.5,
+        height: 1,
+        friction: 0.5,
+        restitution: 0,
+        density: 1,
+        isSensor: 0,
+        membershipGroups: 65535,
+        filterGroups: 65535,
+        posOffsetX: 0,
+        posOffsetY: 0,
+        posOffsetZ: 0,
+        rotOffsetX: 0,
+        rotOffsetY: 0,
+        rotOffsetZ: 0,
+        rotOffsetW: 1
+      },
+      "character-controller": {
+        offset: 0.08,
+        maxSlope: 45 * (Math.PI / 180),
+        maxSlide: 30 * (Math.PI / 180),
+        snapDist: 0.5,
+        autoStep: 1,
+        maxStepHeight: 0.3,
+        minStepWidth: 0.05,
+        upX: 0,
+        upY: 1,
+        upZ: 0
+      }
+    },
+    enums: {
+      body: {
+        type: {
+          fixed: 0,
+          static: 0,
+          dynamic: 1,
+          "kinematic-position": 2,
+          "kinematic-position-based": 2,
+          kinematic: 3,
+          "kinematic-velocity": 3,
+          "kinematic-velocity-based": 3
+        }
+      },
+      collider: {
+        shape: {
+          box: 0,
+          sphere: 1,
+          capsule: 2
+        }
+      }
+    }
+  }
+};
+
+export {
+  F
+};
+//# sourceMappingURL=chunk-2PF7GEPZ.js.map

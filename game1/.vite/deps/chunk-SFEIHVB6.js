@@ -1,0 +1,54 @@
+import {
+  t
+} from "./chunk-PK4QV4TF.js";
+import {
+  c,
+  g,
+  p,
+  u,
+  x
+} from "./chunk-K753QHTE.js";
+import {
+  T,
+  r,
+  s
+} from "./chunk-57T52AMV.js";
+import {
+  Types,
+  defineComponent,
+  defineQuery
+} from "./chunk-4ERPUZ7I.js";
+
+// node_modules/vibegame/dist/plugins/respawn/components.js
+var m = defineComponent({
+  posX: Types.f32,
+  posY: Types.f32,
+  posZ: Types.f32,
+  eulerX: Types.f32,
+  eulerY: Types.f32,
+  eulerZ: Types.f32
+});
+
+// node_modules/vibegame/dist/plugins/respawn/utils.js
+function P(m2, o) {
+  if (!m2.hasComponent(o, m)) return;
+  const Y = m.posX[o], C = m.posY[o], X = m.posZ[o], Z = m.eulerX[o], h = m.eulerY[o], v = m.eulerZ[o], l2 = T(Z, h, v);
+  m2.hasComponent(o, r) && (r.posX[o] = Y, r.posY[o] = C, r.posZ[o] = X, r.eulerX[o] = Z, r.eulerY[o] = h, r.eulerZ[o] = v, r.rotX[o] = l2.x, r.rotY[o] = l2.y, r.rotZ[o] = l2.z, r.rotW[o] = l2.w), m2.hasComponent(o, c) && (c.posX[o] = Y, c.posY[o] = C, c.posZ[o] = X, c.rotX[o] = l2.x, c.rotY[o] = l2.y, c.rotZ[o] = l2.z, c.rotW[o] = l2.w, c.velX[o] = 0, c.velY[o] = 0, c.velZ[o] = 0, c.rotVelX[o] = 0, c.rotVelY[o] = 0, c.rotVelZ[o] = 0, m2.addComponent(o, g), g.x[o] = 0, g.y[o] = 0, g.z[o] = 0, m2.addComponent(o, x), x.x[o] = 0, x.y[o] = 0, x.z[o] = 0), m2.hasComponent(o, u) && (u.moveX[o] = 0, u.moveY[o] = 0, u.moveZ[o] = 0, u.grounded[o] = 0), m2.hasComponent(o, p) && (p.desiredVelX[o] = 0, p.desiredVelY[o] = 0, p.desiredVelZ[o] = 0, p.velocityY[o] = 0), m2.hasComponent(o, t) && (t.canJump[o] = 1, t.isJumping[o] = 0, t.jumpCooldown[o] = 0);
+}
+
+// node_modules/vibegame/dist/plugins/respawn/systems.js
+var s2 = defineQuery([m, s]);
+var l = {
+  group: "simulation",
+  update: (o) => {
+    const p2 = s2(o.world);
+    for (const r2 of p2)
+      s.posY[r2] < -100 && P(o, r2);
+  }
+};
+
+export {
+  m,
+  l
+};
+//# sourceMappingURL=chunk-SFEIHVB6.js.map

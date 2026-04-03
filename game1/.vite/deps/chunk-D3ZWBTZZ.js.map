@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/vibegame/src/plugins/player/plugin.ts"],
+  "sourcesContent": ["import type { Plugin } from '../../core';\nimport { Player } from './components';\nimport { playerRecipe } from './recipes';\nimport {\n  PlayerCameraLinkingSystem,\n  PlayerGroundedSystem,\n  PlayerMovementSystem,\n} from './systems';\n\nexport const PlayerPlugin: Plugin = {\n  systems: [\n    PlayerCameraLinkingSystem,\n    PlayerMovementSystem,\n    PlayerGroundedSystem,\n  ],\n  recipes: [playerRecipe],\n  components: {\n    Player,\n  },\n  config: {\n    defaults: {\n      player: {\n        speed: 5.3,\n        jumpHeight: 2.3,\n        rotationSpeed: 10,\n        canJump: 1,\n        isJumping: 0,\n        jumpCooldown: 0,\n        lastGroundedTime: 0,\n        jumpBufferTime: -10000,\n        cameraEntity: 0,\n        inheritedVelX: 0,\n        inheritedVelZ: 0,\n      },\n    },\n  },\n};\n"],
+  "mappings": ";;;;;;;;;AASO,IAAMA,IAAuB;EAClC,SAAS;IACPC;IACAC;IACAC;EAAA;EAEF,SAAS,CAACC,CAAY;EACtB,YAAY;IACV,QAAAC;EAAA;EAEF,QAAQ;IACN,UAAU;MACR,QAAQ;QACN,OAAO;QACP,YAAY;QACZ,eAAe;QACf,SAAS;QACT,WAAW;QACX,cAAc;QACd,kBAAkB;QAClB,gBAAgB;QAChB,cAAc;QACd,eAAe;QACf,eAAe;MAAA;IACjB;EACF;AAEJ;",
+  "names": ["PlayerPlugin", "PlayerCameraLinkingSystem", "PlayerMovementSystem", "PlayerGroundedSystem", "playerRecipe", "Player"]
+}

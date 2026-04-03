@@ -1,0 +1,142 @@
+{
+  "hash": "56dc6598",
+  "configHash": "45445236",
+  "lockfileHash": "788533df",
+  "browserHash": "6b20d923",
+  "optimized": {
+    "three": {
+      "src": "../../node_modules/three/build/three.module.js",
+      "file": "three.js",
+      "fileHash": "6494b57d",
+      "needsInterop": false
+    },
+    "vibegame": {
+      "src": "../../node_modules/vibegame/dist/index.js",
+      "file": "vibegame.js",
+      "fileHash": "2a50ac2c",
+      "needsInterop": false
+    },
+    "vibegame/defaults": {
+      "src": "../../node_modules/vibegame/dist/defaults.js",
+      "file": "vibegame_defaults.js",
+      "fileHash": "57b0dd1d",
+      "needsInterop": false
+    },
+    "vibegame/player": {
+      "src": "../../node_modules/vibegame/dist/plugins/player/index.js",
+      "file": "vibegame_player.js",
+      "fileHash": "7dc456db",
+      "needsInterop": false
+    },
+    "vibegame/startup": {
+      "src": "../../node_modules/vibegame/dist/plugins/startup/index.js",
+      "file": "vibegame_startup.js",
+      "fileHash": "cb0f800c",
+      "needsInterop": false
+    },
+    "vibegame/respawn": {
+      "src": "../../node_modules/vibegame/dist/plugins/respawn/index.js",
+      "file": "vibegame_respawn.js",
+      "fileHash": "97f323ab",
+      "needsInterop": false
+    },
+    "vibegame/physics": {
+      "src": "../../node_modules/vibegame/dist/plugins/physics/index.js",
+      "file": "vibegame_physics.js",
+      "fileHash": "834d97ea",
+      "needsInterop": false
+    },
+    "vibegame/input": {
+      "src": "../../node_modules/vibegame/dist/plugins/input/index.js",
+      "file": "vibegame_input.js",
+      "fileHash": "c79dd2a6",
+      "needsInterop": false
+    },
+    "vibegame/orbit-camera": {
+      "src": "../../node_modules/vibegame/dist/plugins/orbit-camera/index.js",
+      "file": "vibegame_orbit-camera.js",
+      "fileHash": "dc2a076d",
+      "needsInterop": false
+    },
+    "vibegame/transforms": {
+      "src": "../../node_modules/vibegame/dist/plugins/transforms/index.js",
+      "file": "vibegame_transforms.js",
+      "fileHash": "5aeb4285",
+      "needsInterop": false
+    },
+    "vibegame/rendering": {
+      "src": "../../node_modules/vibegame/dist/plugins/rendering/index.js",
+      "file": "vibegame_rendering.js",
+      "fileHash": "c58c66f0",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "defaults-P3TIKEDK": {
+      "file": "defaults-P3TIKEDK.js"
+    },
+    "chunk-Y67PLUBM": {
+      "file": "chunk-Y67PLUBM.js"
+    },
+    "chunk-6YDXLUL7": {
+      "file": "chunk-6YDXLUL7.js"
+    },
+    "chunk-KHRVBOJK": {
+      "file": "chunk-KHRVBOJK.js"
+    },
+    "chunk-AD6M5KHB": {
+      "file": "chunk-AD6M5KHB.js"
+    },
+    "chunk-P23F7SKT": {
+      "file": "chunk-P23F7SKT.js"
+    },
+    "chunk-D3ZWBTZZ": {
+      "file": "chunk-D3ZWBTZZ.js"
+    },
+    "chunk-LZ7ZEFFY": {
+      "file": "chunk-LZ7ZEFFY.js"
+    },
+    "chunk-K525DQOG": {
+      "file": "chunk-K525DQOG.js"
+    },
+    "chunk-DELBVMMX": {
+      "file": "chunk-DELBVMMX.js"
+    },
+    "chunk-SFEIHVB6": {
+      "file": "chunk-SFEIHVB6.js"
+    },
+    "chunk-PK4QV4TF": {
+      "file": "chunk-PK4QV4TF.js"
+    },
+    "chunk-Z5M7ZCDK": {
+      "file": "chunk-Z5M7ZCDK.js"
+    },
+    "chunk-2PF7GEPZ": {
+      "file": "chunk-2PF7GEPZ.js"
+    },
+    "chunk-K753QHTE": {
+      "file": "chunk-K753QHTE.js"
+    },
+    "chunk-T4FKFSHD": {
+      "file": "chunk-T4FKFSHD.js"
+    },
+    "chunk-57T52AMV": {
+      "file": "chunk-57T52AMV.js"
+    },
+    "chunk-ACJWYV7H": {
+      "file": "chunk-ACJWYV7H.js"
+    },
+    "chunk-VC3U7TRB": {
+      "file": "chunk-VC3U7TRB.js"
+    },
+    "chunk-QL5YCE4U": {
+      "file": "chunk-QL5YCE4U.js"
+    },
+    "chunk-4ERPUZ7I": {
+      "file": "chunk-4ERPUZ7I.js"
+    },
+    "chunk-7L7XMRHS": {
+      "file": "chunk-7L7XMRHS.js"
+    }
+  }
+}

@@ -1,0 +1,1795 @@
+import {
+  $,
+  E as E2,
+  d,
+  g,
+  h,
+  l,
+  m,
+  o,
+  p,
+  y
+} from "./chunk-P23F7SKT.js";
+import "./chunk-K525DQOG.js";
+import {
+  E,
+  T
+} from "./chunk-T4FKFSHD.js";
+import {
+  A,
+  F,
+  Q,
+  T as T2
+} from "./chunk-57T52AMV.js";
+import {
+  x
+} from "./chunk-VC3U7TRB.js";
+import {
+  N,
+  t
+} from "./chunk-QL5YCE4U.js";
+import {
+  Types,
+  _,
+  addComponent,
+  addEntity,
+  createWorld,
+  defineComponent,
+  defineQuery,
+  entityExists,
+  hasComponent,
+  o as o2,
+  removeComponent,
+  removeEntity
+} from "./chunk-4ERPUZ7I.js";
+import {
+  Euler,
+  Quaternion,
+  __publicField
+} from "./chunk-7L7XMRHS.js";
+
+// node_modules/vibegame/dist/core/ecs/config.js
+var p2 = class {
+  constructor() {
+    __publicField(this, "parsers", /* @__PURE__ */ new Map());
+    __publicField(this, "componentDefaults", {});
+    __publicField(this, "componentShorthands", {});
+    __publicField(this, "componentEnums", {});
+    __publicField(this, "validations", []);
+    __publicField(this, "skipProperties", {});
+    __publicField(this, "adapters", {});
+  }
+  register(t4) {
+    if (t4.parsers)
+      for (const [s6, n2] of Object.entries(t4.parsers)) {
+        const e4 = this.parsers.get(s6) || [];
+        e4.push(n2), this.parsers.set(s6, e4);
+      }
+    if (t4.defaults)
+      for (const [s6, n2] of Object.entries(t4.defaults)) {
+        const e4 = o(s6);
+        this.componentDefaults[e4] || (this.componentDefaults[e4] = {}), Object.assign(this.componentDefaults[e4], n2);
+      }
+    if (t4.shorthands)
+      for (const [s6, n2] of Object.entries(
+        t4.shorthands
+      )) {
+        const e4 = o(s6);
+        this.componentShorthands[e4] || (this.componentShorthands[e4] = {}), Object.assign(this.componentShorthands[e4], n2);
+      }
+    if (t4.enums)
+      for (const [s6, n2] of Object.entries(t4.enums)) {
+        const e4 = o(s6);
+        this.componentEnums[e4] || (this.componentEnums[e4] = {}), Object.assign(this.componentEnums[e4], n2);
+      }
+    if (t4.validations && this.validations.push(...t4.validations), t4.skip)
+      for (const [s6, n2] of Object.entries(t4.skip)) {
+        const e4 = o(s6);
+        this.skipProperties[e4] || (this.skipProperties[e4] = /* @__PURE__ */ new Set());
+        for (const o7 of n2)
+          this.skipProperties[e4].add(o7);
+      }
+    if (t4.adapters)
+      for (const [s6, n2] of Object.entries(
+        t4.adapters
+      )) {
+        const e4 = o(s6);
+        this.adapters[e4] || (this.adapters[e4] = {}), Object.assign(this.adapters[e4], n2);
+      }
+  }
+  getParser(t4) {
+    const s6 = this.parsers.get(t4);
+    if (!(!s6 || s6.length === 0))
+      return s6.length === 1 ? s6[0] : (n2) => {
+        for (const e4 of s6)
+          e4(n2);
+      };
+  }
+  getDefaults(t4) {
+    return this.componentDefaults[t4] || {};
+  }
+  getShorthands(t4) {
+    return this.componentShorthands[t4] || {};
+  }
+  getAllShorthands() {
+    return this.componentShorthands;
+  }
+  getEnums(t4) {
+    return this.componentEnums[t4] || {};
+  }
+  getValidations() {
+    return this.validations;
+  }
+  shouldSkip(t4, s6) {
+    const n2 = this.skipProperties[t4];
+    return n2 ? n2.has(s6) : false;
+  }
+  getAdapter(t4, s6) {
+    var _a;
+    return (_a = this.adapters[t4]) == null ? void 0 : _a[s6];
+  }
+  getAdapterProperties(t4) {
+    const s6 = this.adapters[t4];
+    return s6 ? Object.keys(s6) : [];
+  }
+};
+
+// node_modules/vibegame/dist/core/ecs/utils.js
+function s(o7, t4, n2) {
+  for (const [f2, i3] of Object.entries(n2)) {
+    const e4 = o7[f2];
+    e4 && (e4[t4] = i3);
+  }
+}
+
+// node_modules/vibegame/dist/core/ecs/ordering.js
+function c(e4, o7) {
+  const t4 = new Error(o7);
+  return t4.type = e4, t4;
+}
+function d2(e4) {
+  if (e4.first && e4.last)
+    throw c(
+      "validation",
+      "System cannot have both first and last constraints"
+    );
+}
+function l2(e4, o7) {
+  const t4 = e4.group ?? "simulation";
+  if (e4.before)
+    for (const n2 of e4.before) {
+      if (!o7.includes(n2)) continue;
+      const r2 = n2.group ?? "simulation";
+      if (r2 !== t4)
+        throw c(
+          "group-mismatch",
+          `System with before constraint references system in different group (${t4} vs ${r2})`
+        );
+    }
+  if (e4.after)
+    for (const n2 of e4.after) {
+      if (!o7.includes(n2)) continue;
+      const r2 = n2.group ?? "simulation";
+      if (r2 !== t4)
+        throw c(
+          "group-mismatch",
+          `System with after constraint references system in different group (${t4} vs ${r2})`
+        );
+    }
+}
+function p3(e4) {
+  const o7 = /* @__PURE__ */ new Map();
+  for (const t4 of e4) {
+    if (o7.has(t4) || o7.set(t4, /* @__PURE__ */ new Set()), t4.before)
+      for (const n2 of t4.before)
+        e4.includes(n2) && (o7.has(n2) || o7.set(n2, /* @__PURE__ */ new Set()), o7.get(t4).add(n2));
+    if (t4.after)
+      for (const n2 of t4.after)
+        e4.includes(n2) && (o7.has(n2) || o7.set(n2, /* @__PURE__ */ new Set()), o7.get(n2).add(t4));
+  }
+  return o7;
+}
+function h2(e4) {
+  const o7 = /* @__PURE__ */ new Set(), t4 = /* @__PURE__ */ new Set();
+  function n2(r2) {
+    if (t4.has(r2)) return true;
+    if (o7.has(r2)) return false;
+    o7.add(r2), t4.add(r2);
+    const f2 = e4.get(r2);
+    return (f2 == null ? void 0 : f2.size) && [...f2].some(n2) ? true : (t4.delete(r2), false);
+  }
+  for (const r2 of e4.keys())
+    if (n2(r2))
+      throw c(
+        "circular-dependency",
+        "Circular dependency detected in system constraints"
+      );
+}
+function a(e4) {
+  if (e4.length === 0) return [];
+  const o7 = p3(e4);
+  h2(o7);
+  const t4 = /* @__PURE__ */ new Map();
+  for (const f2 of e4)
+    t4.set(f2, 0);
+  for (const f2 of o7.values())
+    for (const i3 of f2)
+      t4.set(i3, (t4.get(i3) || 0) + 1);
+  const n2 = [], r2 = [];
+  for (const f2 of e4)
+    t4.get(f2) === 0 && n2.push(f2);
+  for (; n2.length > 0; ) {
+    const f2 = n2.shift();
+    r2.push(f2);
+    const i3 = o7.get(f2) || /* @__PURE__ */ new Set();
+    for (const s6 of i3) {
+      const u3 = (t4.get(s6) || 0) - 1;
+      t4.set(s6, u3), u3 === 0 && n2.push(s6);
+    }
+  }
+  return r2;
+}
+function g2(e4, o7, t4) {
+  const n2 = t4 || e4;
+  e4.forEach((f2) => {
+    d2(f2), l2(f2, n2);
+  });
+  const r2 = e4.reduce(
+    (f2, i3) => {
+      const s6 = i3.first ? "first" : i3.last ? "last" : "normal";
+      return f2[s6].push(i3), f2;
+    },
+    { first: [], normal: [], last: [] }
+  );
+  return [
+    ...a(r2.first),
+    ...a(r2.normal),
+    ...a(r2.last)
+  ];
+}
+
+// node_modules/vibegame/dist/core/ecs/scheduler.js
+var p4 = class {
+  constructor() {
+    __publicField(this, "accumulator", 0);
+    __publicField(this, "setup", /* @__PURE__ */ new WeakSet());
+    __publicField(this, "systemGroupCache", /* @__PURE__ */ new Map());
+    __publicField(this, "lastSystemsSize", 0);
+  }
+  getAccumulator() {
+    return this.accumulator;
+  }
+  step(s6, e4 = T.DEFAULT_DELTA) {
+    const r2 = T.FIXED_TIMESTEP, t4 = s6.time;
+    for (t4.deltaTime = e4, t4.elapsed += e4, this.accumulator += e4, this.runSystemGroup(s6, "setup"); this.accumulator >= r2; )
+      t4.deltaTime = r2, this.runSystemGroup(s6, "fixed"), this.accumulator -= r2;
+    t4.deltaTime = e4, this.runSystemGroup(s6, "simulation"), this.runSystemGroup(s6, "draw");
+  }
+  runSystemGroup(s6, e4) {
+    var _a, _b;
+    const r2 = this.getSystemsByGroup(s6, e4);
+    for (const t4 of r2)
+      this.setup.has(t4) || ((_a = t4.setup) == null ? void 0 : _a.call(t4, s6), this.setup.add(t4)), (_b = t4.update) == null ? void 0 : _b.call(t4, s6);
+  }
+  getSystemsByGroup(s6, e4) {
+    s6.systems.size !== this.lastSystemsSize && (this.systemGroupCache.clear(), this.lastSystemsSize = s6.systems.size);
+    const r2 = e4;
+    if (this.systemGroupCache.has(r2))
+      return this.systemGroupCache.get(r2);
+    const t4 = Array.from(s6.systems), i3 = t4.filter(
+      (o7) => (o7.group ?? "simulation") === e4
+    ), u3 = g2(i3, e4, t4);
+    return this.systemGroupCache.set(r2, u3), u3;
+  }
+};
+
+// node_modules/vibegame/dist/core/ecs/snapshot.js
+function y2(n2, e4) {
+  const t4 = {};
+  for (const c3 in n2) {
+    if (c3.startsWith("_")) continue;
+    const o7 = n2[c3];
+    (o7 instanceof Float32Array || o7 instanceof Int32Array || o7 instanceof Uint8Array || o7 instanceof Uint16Array || o7 instanceof Uint32Array) && (t4[c3] = o7[e4]);
+  }
+  return t4;
+}
+function g3(n2, e4) {
+  const t4 = /* @__PURE__ */ new Map(), c3 = (e4 == null ? void 0 : e4.entities) ? new Set(e4.entities) : null, o7 = (e4 == null ? void 0 : e4.components) ? new Set(e4.components) : null, a5 = n2.getNamedEntities(), m2 = /* @__PURE__ */ new Map();
+  for (const [s6, i3] of a5)
+    m2.set(i3, s6);
+  for (const s6 of n2.getComponentNames()) {
+    if (o7 && !o7.has(s6)) continue;
+    const i3 = n2.getComponent(s6);
+    if (!i3) continue;
+    const f2 = defineQuery([i3])(n2.world);
+    for (const r2 of f2) {
+      const u3 = m2.get(r2);
+      if (c3 && (!u3 || !c3.has(u3))) continue;
+      t4.has(r2) || t4.set(r2, {
+        eid: r2,
+        name: u3,
+        components: {}
+      });
+      const p7 = t4.get(r2);
+      p7.components[s6] = y2(i3, r2);
+    }
+  }
+  const x6 = Array.from(t4.values()).sort((s6, i3) => s6.name && i3.name ? s6.name.localeCompare(i3.name) : s6.name ? -1 : i3.name ? 1 : s6.eid - i3.eid), l3 = {
+    elapsed: n2.time.elapsed,
+    entities: x6
+  };
+  if (e4 == null ? void 0 : e4.includeSequences) {
+    const s6 = n2.getComponent("sequence");
+    if (s6) {
+      const d4 = defineQuery([s6])(n2.world), f2 = [];
+      for (const r2 of d4) {
+        const u3 = y2(s6, r2), p7 = u3.itemCount ?? 0;
+        f2.push({
+          name: m2.get(r2) ?? `eid-${r2}`,
+          eid: r2,
+          state: u3.state === 1 ? "playing" : "idle",
+          currentIndex: u3.currentIndex ?? 0,
+          itemCount: p7,
+          progress: p7 > 0 ? (u3.currentIndex ?? 0) / p7 : 0
+        });
+      }
+      l3.sequences = f2.sort((r2, u3) => r2.name.localeCompare(u3.name));
+    }
+  }
+  return l3;
+}
+function F2(n2, e4) {
+  const t4 = Object.keys(e4);
+  if (t4.length === 0) return `${n2}: (empty)`;
+  if (n2 === "transform" && "posX" in e4 && "rotX" in e4 && "scaleX" in e4) {
+    const o7 = `pos(${e4.posX.toFixed(2)}, ${e4.posY.toFixed(2)}, ${e4.posZ.toFixed(2)})`, a5 = `rot(${e4.eulerX.toFixed(2)}, ${e4.eulerY.toFixed(2)}, ${e4.eulerZ.toFixed(2)})`, m2 = `scale(${e4.scaleX.toFixed(2)}, ${e4.scaleY.toFixed(2)}, ${e4.scaleZ.toFixed(2)})`;
+    return `${n2}: ${o7} ${a5} ${m2}`;
+  }
+  const c3 = t4.map((o7) => {
+    const a5 = e4[o7];
+    return `${o7}=${typeof a5 == "number" && !Number.isInteger(a5) ? a5.toFixed(2) : a5}`;
+  });
+  return `${n2}: ${c3.join(" ")}`;
+}
+function q(n2) {
+  const e4 = [];
+  e4.push(`=== elapsed: ${n2.elapsed.toFixed(2)}s ===`), e4.push("");
+  for (const t4 of n2.entities) {
+    const c3 = t4.name ? `[${t4.name}]` : `[eid=${t4.eid}]`;
+    e4.push(`${c3} eid=${t4.eid}`);
+    for (const [o7, a5] of Object.entries(t4.components))
+      e4.push(`  ${F2(o7, a5)}`);
+    e4.push("");
+  }
+  return e4.join(`
+`);
+}
+
+// node_modules/vibegame/dist/core/recipes/parse-context.js
+var a2 = class {
+  constructor(t4) {
+    this.state = t4;
+  }
+  setName(t4, e4) {
+    this.state.setEntityName(t4, e4);
+  }
+  getEntityByName(t4) {
+    return this.state.getEntityByName(t4);
+  }
+};
+
+// node_modules/vibegame/dist/core/recipes/property-parser.js
+function P(e4) {
+  return e4.replace(/-([a-z])/g, (o7, i3) => i3.toUpperCase());
+}
+function I(e4) {
+  if (e4 = e4.trim(), e4.startsWith("0x"))
+    return parseInt(e4, 16);
+  if (e4.startsWith("#"))
+    return parseInt(e4.slice(1), 16);
+  if (e4 === "true") return 1;
+  if (e4 === "false") return 0;
+  const o7 = parseFloat(e4);
+  return isNaN(o7) ? e4 : o7;
+}
+function y3(e4) {
+  return e4.trim().split(/\s+/).map(I);
+}
+function O(e4, o7) {
+  const i3 = `${o7}X`, c3 = `${o7}Y`, f2 = `${o7}Z`;
+  return i3 in e4 && c3 in e4 && f2 in e4;
+}
+function S(e4, o7) {
+  const i3 = `${o7}X`, c3 = `${o7}Y`, f2 = `${o7}Z`, h6 = `${o7}W`;
+  return i3 in e4 && c3 in e4 && f2 in e4 && h6 in e4;
+}
+function C(e4, o7, i3, c3) {
+  const f2 = c3.config.getEnums(e4);
+  if (f2 && f2[o7]) {
+    const h6 = f2[o7], r2 = i3.toLowerCase();
+    if (r2 in h6)
+      return h6[r2];
+    const p7 = Object.keys(h6), a5 = h(
+      e4,
+      o7,
+      i3,
+      p7
+    );
+    throw new Error(a5);
+  }
+  return null;
+}
+function B(e4, o7, i3, c3, f2, h6) {
+  const r2 = {}, p7 = o7.split(";").map((a5) => a5.trim()).filter((a5) => a5.length > 0);
+  for (const a5 of p7) {
+    const $4 = a5.indexOf(":");
+    if ($4 === -1) {
+      const t4 = m(
+        e4,
+        a5,
+        '"property: value"',
+        "missing colon after property name"
+      );
+      throw new Error(t4);
+    }
+    const s6 = a5.slice(0, $4).trim(), w3 = a5.slice($4 + 1).trim(), Y = c3.config.getAdapter(e4, s6);
+    if (Y) {
+      h6 !== void 0 && Y(h6, w3, c3);
+      continue;
+    }
+    if (c3.config.shouldSkip(e4, s6))
+      continue;
+    if (!s6 || !w3) {
+      const t4 = m(
+        e4,
+        a5,
+        '"property: value"',
+        s6 ? "value is empty" : "property name is empty"
+      );
+      throw new Error(t4);
+    }
+    const u3 = P(s6);
+    if ((u3 === "euler" || u3 === "rotation") && "eulerX" in i3) {
+      const t4 = y3(w3);
+      if (t4.length === 1) {
+        const l3 = Number(t4[0]) || 0;
+        r2.eulerX = l3, r2.eulerY = l3, r2.eulerZ = l3;
+      } else if (t4.length === 3)
+        r2.eulerX = Number(t4[0]) || 0, r2.eulerY = Number(t4[1]) || 0, r2.eulerZ = Number(t4[2]) || 0;
+      else {
+        const l3 = y(
+          e4,
+          s6,
+          "1 (broadcast) or 3 (x, y, z degrees)",
+          t4.length
+        );
+        throw new Error(l3);
+      }
+      const n2 = T2(
+        r2.eulerX || 0,
+        r2.eulerY || 0,
+        r2.eulerZ || 0
+      );
+      r2.rotX = n2.x, r2.rotY = n2.y, r2.rotZ = n2.z, r2.rotW = n2.w;
+      continue;
+    }
+    if (u3 === "rot" && S(i3, "rot")) {
+      console.warn(
+        `[${e4}.rot] Direct quaternion values are deprecated. Use 'euler' or 'rotation' for Euler angles in degrees instead.`
+      );
+      const t4 = y3(w3);
+      if (t4.length === 3) {
+        const n2 = T2(
+          Number(t4[0]) || 0,
+          Number(t4[1]) || 0,
+          Number(t4[2]) || 0
+        );
+        r2.rotX = n2.x, r2.rotY = n2.y, r2.rotZ = n2.z, r2.rotW = n2.w, r2.eulerX = Number(t4[0]) || 0, r2.eulerY = Number(t4[1]) || 0, r2.eulerZ = Number(t4[2]) || 0;
+      } else if (t4.length === 4) {
+        r2.rotX = Number(t4[0]) || 0, r2.rotY = Number(t4[1]) || 0, r2.rotZ = Number(t4[2]) || 0, r2.rotW = Number(t4[3]) || 1;
+        const n2 = F(
+          r2.rotX,
+          r2.rotY,
+          r2.rotZ,
+          r2.rotW
+        );
+        r2.eulerX = n2.x, r2.eulerY = n2.y, r2.eulerZ = n2.z;
+      } else {
+        const n2 = y(
+          e4,
+          s6,
+          "3 (Euler angles) or 4 (quaternion)",
+          t4.length
+        );
+        throw new Error(n2);
+      }
+      continue;
+    }
+    if (O(i3, u3)) {
+      const t4 = y3(w3);
+      if (t4.length === 1) {
+        const n2 = Number(t4[0]) || 0;
+        r2[`${u3}X`] = n2, r2[`${u3}Y`] = n2, r2[`${u3}Z`] = n2;
+      } else if (t4.length === 3)
+        r2[`${u3}X`] = Number(t4[0]) || 0, r2[`${u3}Y`] = Number(t4[1]) || 0, r2[`${u3}Z`] = Number(t4[2]) || 0;
+      else {
+        const n2 = y(
+          e4,
+          s6,
+          "1 (broadcast) or 3 (x, y, z)",
+          t4.length
+        );
+        throw new Error(n2);
+      }
+      continue;
+    }
+    if (u3 in i3) {
+      const t4 = y3(w3);
+      if (t4.length !== 1) {
+        const l3 = y(
+          e4,
+          s6,
+          "1",
+          t4.length
+        );
+        throw new Error(l3);
+      }
+      const n2 = t4[0];
+      if (typeof n2 == "string") {
+        const l3 = C(e4, u3, n2, c3);
+        if (l3 !== null)
+          r2[u3] = l3;
+        else if (f2) {
+          const g5 = f2.getEntityByName(n2);
+          if (g5 !== null)
+            r2[u3] = g5;
+          else {
+            const X = d(
+              e4,
+              s6,
+              "number or entity name",
+              `string "${n2}"`
+            );
+            throw new Error(X);
+          }
+        } else {
+          const g5 = d(
+            e4,
+            s6,
+            "number",
+            `string "${n2}"`
+          );
+          throw new Error(g5);
+        }
+      } else
+        r2[u3] = n2;
+      continue;
+    }
+    const b = P(s6);
+    if (b in i3) {
+      const t4 = y3(w3);
+      if (t4.length !== 1) {
+        const l3 = y(
+          e4,
+          s6,
+          "1",
+          t4.length
+        );
+        throw new Error(l3);
+      }
+      const n2 = t4[0];
+      if (typeof n2 == "string") {
+        const l3 = C(
+          e4,
+          b,
+          n2,
+          c3
+        );
+        if (l3 !== null)
+          r2[b] = l3;
+        else if (f2) {
+          const g5 = f2.getEntityByName(n2);
+          if (g5 !== null)
+            r2[b] = g5;
+          else {
+            const X = d(
+              e4,
+              s6,
+              "number or entity name",
+              `string "${n2}"`
+            );
+            throw new Error(X);
+          }
+        } else {
+          const g5 = d(
+            e4,
+            s6,
+            "number",
+            `string "${n2}"`
+          );
+          throw new Error(g5);
+        }
+      } else
+        r2[b] = n2;
+      continue;
+    }
+    const V = E2(i3), W = l(
+      e4,
+      s6,
+      "Property not found",
+      V
+    );
+    throw new Error(W);
+  }
+  return r2;
+}
+
+// node_modules/vibegame/dist/core/recipes/shorthand-expander.js
+function a3(i3, t4, $4) {
+  const e4 = {}, s6 = {}, l3 = /* @__PURE__ */ new Set();
+  if (t4.components)
+    for (const n2 of t4.components)
+      l3.add(n2);
+  for (const n2 of Object.keys(i3))
+    $4.getComponent(n2) && l3.add(n2);
+  for (const [n2, u3] of Object.entries(i3)) {
+    const c3 = o3(u3);
+    let f2 = false;
+    for (const r2 of l3) {
+      const g5 = $4.getComponent(r2);
+      if (!g5) continue;
+      const h6 = $4.config.getShorthands(r2);
+      if (h6[n2]) {
+        const d4 = h6[n2];
+        typeof d4 == "string" && x2(
+          r2,
+          d4,
+          c3,
+          g5,
+          s6
+        ) && (f2 = true);
+      } else x2(
+        r2,
+        n2,
+        c3,
+        g5,
+        s6
+      ) && (f2 = true);
+    }
+    f2 || (e4[n2] = u3);
+  }
+  for (const [n2, u3] of Object.entries(s6)) {
+    const c3 = Object.entries(u3).map(([f2, r2]) => `${f2}: ${r2}`).join("; ");
+    if (n2 in e4) {
+      const f2 = e4[n2];
+      typeof f2 == "string" && f2.trim() ? e4[n2] = `${c3}; ${f2}` : e4[n2] = c3;
+    } else
+      e4[n2] = c3;
+  }
+  return e4;
+}
+function o3(i3) {
+  if (typeof i3 == "string")
+    return i3;
+  if (typeof i3 == "object" && i3 !== null && "x" in i3) {
+    const t4 = i3;
+    return "w" in t4 ? `${t4.x} ${t4.y} ${t4.z} ${t4.w}` : "z" in t4 ? `${t4.x} ${t4.y} ${t4.z}` : `${t4.x} ${t4.y}`;
+  } else
+    return String(i3);
+}
+function x2(i3, t4, $4, e4, s6) {
+  const l3 = t4.replace(
+    /-([a-z])/g,
+    (r2, g5) => g5.toUpperCase()
+  ), n2 = `${l3}X` in e4, u3 = `${l3}Y` in e4, c3 = `${l3}Z` in e4, f2 = `${l3}W` in e4;
+  if (n2 && u3 && c3) {
+    s6[i3] || (s6[i3] = {});
+    const r2 = $4.trim().split(/\s+/);
+    if (f2 && r2.length === 4)
+      return s6[i3][`${t4}-x`] = r2[0], s6[i3][`${t4}-y`] = r2[1], s6[i3][`${t4}-z`] = r2[2], s6[i3][`${t4}-w`] = r2[3], true;
+    if (r2.length === 3 || r2.length === 1) {
+      const g5 = S2($4);
+      return s6[i3][`${t4}-x`] = String(g5[0]), s6[i3][`${t4}-y`] = String(g5[1]), s6[i3][`${t4}-z`] = String(g5[2]), true;
+    }
+  } else if (l3 in e4)
+    return s6[i3] || (s6[i3] = {}), s6[i3][t4] = $4, true;
+  return false;
+}
+function S2(i3) {
+  const t4 = i3.trim().split(/\s+/).map(($4) => parseFloat($4) || 0);
+  if (t4.length === 1)
+    return [t4[0], t4[0], t4[0]];
+  if (t4.length === 3)
+    return t4;
+  throw new Error(
+    `Invalid vector3 value: "${i3}". Expected 1 or 3 numbers.`
+  );
+}
+
+// node_modules/vibegame/dist/core/recipes/parser.js
+function v(o7) {
+  return typeof o7 == "number" ? o7 : typeof o7 == "string" ? parseFloat(o7) || 0 : typeof o7 == "boolean" && o7 ? 1 : 0;
+}
+function R(o7, s6, c3, t4) {
+  const i3 = o7.getRecipe(s6);
+  if (!i3) {
+    const e4 = Array.from(o7.getRecipeNames()), r2 = $(s6, e4);
+    throw new Error(r2);
+  }
+  const n2 = o7.createEntity();
+  if (i3.components)
+    for (const e4 of i3.components) {
+      const r2 = o7.getComponent(e4);
+      r2 && o7.addComponent(n2, r2);
+    }
+  if (i3.components)
+    for (const e4 of i3.components) {
+      const r2 = o7.getComponent(e4);
+      if (r2) {
+        const p7 = o7.config.getDefaults(e4);
+        for (const [a5, l3] of Object.entries(p7))
+          a5 in r2 && (r2[a5][n2] = l3);
+      }
+    }
+  if (i3.overrides)
+    for (const [e4, r2] of Object.entries(i3.overrides)) {
+      const [p7, a5] = e4.split("."), l3 = o7.getComponent(p7);
+      if (l3) {
+        o7.hasComponent(n2, l3) || o7.addComponent(n2, l3);
+        const m2 = p(a5);
+        m2 in l3 && (l3[m2][n2] = r2);
+      }
+    }
+  return k(n2, i3, c3, o7, t4), n2;
+}
+function M(o7, s6, c3 = {}) {
+  const t4 = new a2(o7);
+  return R(o7, s6, c3, t4);
+}
+function C2(o7, s6, c3, t4) {
+  const i3 = p(c3);
+  return i3 in s6 ? (s6[i3][o7] = v(t4), true) : false;
+}
+function O2(o7, s6, c3, t4, i3) {
+  if (c3.includes(".")) {
+    const [n2, e4] = c3.split("."), r2 = i3.getComponent(n2);
+    return r2 ? C2(
+      o7,
+      r2,
+      e4,
+      t4
+    ) : false;
+  }
+  if (s6.components)
+    for (const n2 of s6.components) {
+      const e4 = i3.getComponent(n2);
+      if (e4 && C2(
+        o7,
+        e4,
+        c3,
+        t4
+      ))
+        return true;
+    }
+  if (s6.components) {
+    const n2 = typeof t4 == "string" ? t4 : String(t4);
+    for (const e4 of s6.components) {
+      const r2 = i3.config.getAdapter(e4, c3);
+      if (r2)
+        return r2(o7, n2, i3), true;
+    }
+  }
+  return false;
+}
+function $2(o7, s6) {
+  const c3 = /* @__PURE__ */ new Set();
+  if (o7.components)
+    for (const t4 of o7.components) {
+      const i3 = s6.config.getShorthands(t4);
+      for (const e4 of Object.keys(i3))
+        c3.add(e4);
+      const n2 = s6.config.getAdapterProperties(t4);
+      for (const e4 of n2)
+        c3.add(e4);
+    }
+  for (const t4 of s6.getComponentNames())
+    c3.add(t4);
+  if (o7.components)
+    for (const t4 of o7.components) {
+      const i3 = s6.getComponent(t4);
+      if (i3) {
+        c3.add(t4);
+        for (const n2 in i3)
+          if (typeof i3[n2] != "function" && !n2.startsWith("_")) {
+            const e4 = n2.replace(/([A-Z])/g, "-$1").toLowerCase();
+            c3.add(`${t4}.${e4}`), c3.add(e4);
+          }
+      }
+    }
+  return c3.add("id"), c3.add("name"), Array.from(c3).sort();
+}
+function k(o7, s6, c3, t4, i3) {
+  const n2 = a3(c3, s6, t4);
+  for (const r2 of t4.config.getValidations())
+    r2.condition(s6.name, n2) && console.warn(`[${s6.name}] Warning: ${r2.warning}`);
+  const e4 = !!t4.getParser(s6.name);
+  for (const [r2, p7] of Object.entries(n2)) {
+    if (r2 === "id") continue;
+    if (r2 === "name") {
+      typeof p7 == "string" && i3.setName(p7, o7);
+      continue;
+    }
+    const a5 = t4.getComponent(r2);
+    if (a5 && typeof p7 == "string") {
+      if (!t4.hasComponent(o7, a5)) {
+        t4.addComponent(o7, a5);
+        const m2 = t4.config.getDefaults(r2);
+        for (const [f2, g5] of Object.entries(m2))
+          f2 in a5 && (a5[f2][o7] = g5);
+      }
+      const l3 = B(
+        r2,
+        p7,
+        a5,
+        t4,
+        i3,
+        o7
+      );
+      for (const [m2, f2] of Object.entries(l3))
+        m2 in a5 && (a5[m2][o7] = f2);
+    } else if (!O2(
+      o7,
+      s6,
+      r2,
+      p7,
+      t4
+    ) && !e4) {
+      const m2 = $2(s6, t4), f2 = [];
+      if (s6.components)
+        for (const d4 of s6.components) {
+          const h6 = t4.config.getShorthands(d4);
+          f2.push(...Object.keys(h6));
+        }
+      for (const [d4] of Object.entries(n2))
+        if (t4.getComponent(d4)) {
+          const h6 = t4.config.getShorthands(d4);
+          for (const u3 of Object.keys(h6))
+            f2.includes(u3) || f2.push(u3);
+        }
+      const g5 = g(
+        r2,
+        s6.name,
+        m2,
+        f2
+      );
+      console.warn(g5);
+    }
+  }
+}
+function I2(o7, s6) {
+  const c3 = [], t4 = new a2(o7);
+  function i3(n2) {
+    if (o7.hasRecipe(n2.tagName)) {
+      const e4 = R(
+        o7,
+        n2.tagName,
+        n2.attributes,
+        t4
+      ), r2 = o7.getParser(n2.tagName);
+      if (r2)
+        return r2({ entity: e4, element: n2, state: o7, context: t4 }), { entity: e4, tagName: n2.tagName, children: [] };
+      const p7 = [];
+      for (const a5 of n2.children) {
+        const l3 = o7.getParser(a5.tagName);
+        if (l3)
+          l3({ entity: e4, element: a5, state: o7, context: t4 });
+        else if (o7.hasRecipe(a5.tagName)) {
+          const m2 = i3(a5);
+          if (m2) {
+            p7.push(m2);
+            const f2 = m2.entity, g5 = o7.getComponent("parent"), d4 = o7.getComponent("transform");
+            if (g5 && d4) {
+              if (!o7.hasComponent(e4, d4)) {
+                console.warn(
+                  `[${n2.tagName}] Parent entity is missing Transform component. Adding automatically.
+  Consider adding transform="pos: 0 0 0" to the parent element.`
+                ), o7.addComponent(e4, d4);
+                const u3 = o7.config.getDefaults("transform");
+                for (const [N2, y5] of Object.entries(u3))
+                  N2 in d4 && (d4[N2][e4] = y5);
+              }
+              if (!o7.hasComponent(f2, d4)) {
+                console.warn(
+                  `[${a5.tagName}] Child entity is missing Transform component. Adding automatically.
+  Consider adding transform="pos: 0 0 0" to the child element.`
+                ), o7.addComponent(f2, d4);
+                const u3 = o7.config.getDefaults("transform");
+                for (const [N2, y5] of Object.entries(u3))
+                  N2 in d4 && (d4[N2][f2] = y5);
+              }
+              o7.addComponent(f2, g5), g5.entity[f2] = e4;
+              const h6 = o7.getComponent("body");
+              h6 && o7.hasComponent(e4, h6) && o7.hasComponent(f2, h6) && console.warn(
+                `[Physics Warning] "${a5.tagName}" has a Body component and is nested inside "${n2.tagName}" which also has a Body component.
+This configuration is not supported - a physics body should not be a child of another physics body.
+Consider one of these solutions:
+  1. Remove the Body component from the child (keep only Collider if needed)
+  2. Make "${a5.tagName}" a sibling of "${n2.tagName}" instead of a child
+  3. Use physics constraints or joints to connect separate bodies`
+              );
+            }
+          }
+        } else {
+          const m2 = Array.from(o7.getRecipeNames()), f2 = $(
+            a5.tagName,
+            m2
+          );
+          throw new Error(
+            f2 + `
+  Note: Components must be specified as attributes, not child elements.
+  Example: <entity transform="pos: 0 5 0" renderer="shape: box"></entity>`
+          );
+        }
+      }
+      return {
+        entity: e4,
+        tagName: n2.tagName,
+        children: p7
+      };
+    }
+    return null;
+  }
+  if (s6.children.length > 0)
+    for (const n2 of s6.children) {
+      const e4 = i3(n2);
+      if (e4)
+        c3.push(e4);
+      else {
+        const r2 = Array.from(o7.getRecipeNames()), p7 = $(n2.tagName, r2);
+        throw new Error(p7);
+      }
+    }
+  else {
+    if (s6.tagName === "world")
+      return c3;
+    const n2 = i3(s6);
+    if (n2)
+      c3.push(n2);
+    else {
+      const e4 = Array.from(o7.getRecipeNames()), r2 = $(
+        s6.tagName,
+        e4
+      );
+      throw new Error(r2);
+    }
+  }
+  return c3;
+}
+
+// node_modules/vibegame/dist/core/ecs/state.js
+var v2 = class {
+  constructor() {
+    __publicField(this, "world");
+    __publicField(this, "time");
+    __publicField(this, "scheduler", new p4());
+    __publicField(this, "systems", /* @__PURE__ */ new Set());
+    __publicField(this, "config", new p2());
+    __publicField(this, "headless", false);
+    __publicField(this, "recipes", /* @__PURE__ */ new Map());
+    __publicField(this, "components", /* @__PURE__ */ new Map());
+    __publicField(this, "plugins", []);
+    __publicField(this, "entityNames", /* @__PURE__ */ new Map());
+    __publicField(this, "isDisposed", false);
+    this.world = createWorld(), this.time = {
+      deltaTime: 0,
+      fixedDeltaTime: T.FIXED_TIMESTEP,
+      elapsed: 0
+    }, this.registerComponent("parent", o2), this.registerRecipe({
+      name: "entity",
+      components: []
+    });
+  }
+  registerPlugin(e4) {
+    if (this.plugins.push(e4), e4.components)
+      for (const [t4, s6] of Object.entries(e4.components))
+        this.registerComponent(t4, s6);
+    if (e4.systems)
+      for (const t4 of e4.systems)
+        this.registerSystem(t4);
+    if (e4.recipes)
+      for (const t4 of e4.recipes)
+        this.registerRecipe(t4);
+    e4.config && this.registerConfig(e4.config);
+  }
+  async initializePlugins() {
+    for (const e4 of this.plugins)
+      e4.initialize && await e4.initialize(this);
+  }
+  registerSystem(e4) {
+    this.systems.has(e4) || this.systems.add(e4);
+  }
+  registerRecipe(e4) {
+    this.recipes.set(e4.name, e4);
+  }
+  registerComponent(e4, t4) {
+    const s6 = o(e4);
+    this.components.set(s6, t4);
+  }
+  registerConfig(e4) {
+    this.config.register(e4);
+  }
+  getParser(e4) {
+    return this.config.getParser(e4);
+  }
+  getRecipe(e4) {
+    return this.recipes.get(e4);
+  }
+  getComponent(e4) {
+    return this.components.get(o(e4));
+  }
+  hasRecipe(e4) {
+    return this.recipes.has(e4);
+  }
+  getRecipeNames() {
+    return new Set(this.recipes.keys());
+  }
+  getComponentNames() {
+    return Array.from(this.components.keys());
+  }
+  setEntityName(e4, t4) {
+    this.entityNames.set(e4, t4);
+  }
+  getEntityByName(e4) {
+    return this.entityNames.get(e4) ?? null;
+  }
+  getEntityName(e4) {
+    for (const [t4, s6] of this.entityNames)
+      if (s6 === e4) return t4;
+  }
+  getNamedEntities() {
+    return new Map(this.entityNames);
+  }
+  getComponentName(e4) {
+    for (const [t4, s6] of this.components.entries())
+      if (s6 === e4)
+        return t4;
+  }
+  step(e4 = T.DEFAULT_DELTA) {
+    this.checkDisposed(), this.scheduler.step(this, e4);
+  }
+  createEntity() {
+    return this.checkDisposed(), addEntity(this.world);
+  }
+  destroyEntity(e4) {
+    this.checkDisposed(), removeEntity(this.world, e4);
+  }
+  exists(e4) {
+    return entityExists(this.world, e4);
+  }
+  addComponent(e4, t4, s6) {
+    addComponent(this.world, t4, e4);
+    const i3 = this.getComponentName(t4);
+    if (i3) {
+      const m2 = this.config.getDefaults(i3);
+      s(t4, e4, m2);
+    }
+    s6 && s(t4, e4, s6);
+  }
+  removeComponent(e4, t4) {
+    removeComponent(this.world, t4, e4);
+  }
+  hasComponent(e4, t4) {
+    return hasComponent(this.world, t4, e4);
+  }
+  createFromRecipe(e4, t4 = {}) {
+    return M(this, e4, t4);
+  }
+  dispose() {
+    var _a;
+    if (this.isDisposed)
+      throw new Error("[VibeGame] State already disposed");
+    for (const e4 of this.systems)
+      (_a = e4.dispose) == null ? void 0 : _a.call(e4, this);
+    this.systems.clear(), this.isDisposed = true;
+  }
+  checkDisposed() {
+    if (this.isDisposed)
+      throw new Error("[VibeGame] Cannot use disposed State");
+  }
+  snapshot(e4) {
+    const t4 = g3(this, e4);
+    return {
+      ...t4,
+      format: () => q(t4)
+    };
+  }
+};
+
+// node_modules/vibegame/dist/core/xml/values.js
+var e = {
+  red: 16711680,
+  green: 65280,
+  blue: 255,
+  yellow: 16776960,
+  purple: 16711935,
+  cyan: 65535,
+  white: 16777215,
+  black: 0,
+  gray: 8421504,
+  orange: 16753920,
+  pink: 16761035,
+  lime: 65280,
+  gold: 16766720
+};
+var s2 = /^-?\d+(\.\d+)?(\s+-?\d+(\.\d+)?)+$/;
+var o4 = {
+  parse(r2) {
+    return this.isVector(r2) ? this.parseVector(r2) : this.isHexColor(r2) ? this.parseHexColor(r2) : this.isNamedColor(r2) ? this.parseNamedColor(r2) : this.isBoolean(r2) ? this.parseBoolean(r2) : this.isNumber(r2) ? this.parseNumber(r2) : r2;
+  },
+  isVector(r2) {
+    return s2.test(r2);
+  },
+  parseVector(r2) {
+    const t4 = r2.split(/\s+/).map(Number);
+    return t4.length === 2 ? { x: t4[0], y: t4[1] } : t4.length === 3 ? { x: t4[0], y: t4[1], z: t4[2] } : t4.length === 4 ? { x: t4[0], y: t4[1], z: t4[2], w: t4[3] } : t4;
+  },
+  isHexColor(r2) {
+    return r2.startsWith("0x") ? /^0x[0-9a-fA-F]+$/.test(r2) : r2.startsWith("#") ? /^#[0-9a-fA-F]+$/.test(r2) : false;
+  },
+  parseHexColor(r2) {
+    return r2.startsWith("0x") ? parseInt(r2, 16) : parseInt(r2.slice(1), 16);
+  },
+  isNamedColor(r2) {
+    return Object.prototype.hasOwnProperty.call(e, r2.toLowerCase());
+  },
+  parseNamedColor(r2) {
+    return e[r2.toLowerCase()];
+  },
+  isBoolean(r2) {
+    return r2 === "true" || r2 === "false";
+  },
+  parseBoolean(r2) {
+    return r2 === "true";
+  },
+  isNumber(r2) {
+    return !isNaN(parseFloat(r2));
+  },
+  parseNumber(r2) {
+    return parseFloat(r2);
+  }
+};
+
+// node_modules/vibegame/dist/core/xml/parser.js
+var i = {
+  parse(t4) {
+    const e4 = new DOMParser().parseFromString(t4, "text/xml");
+    if (e4.documentElement.tagName === "parsererror")
+      throw new Error("Invalid XML syntax");
+    return { root: n(e4.documentElement) };
+  }
+};
+function n(t4) {
+  const o7 = {};
+  for (let r2 = 0; r2 < t4.attributes.length; r2++) {
+    const a5 = t4.attributes[r2];
+    o7[a5.name] = o4.parse(a5.value);
+  }
+  const e4 = [];
+  for (let r2 = 0; r2 < t4.children.length; r2++)
+    e4.push(n(t4.children[r2]));
+  return {
+    tagName: t4.tagName.toLowerCase(),
+    attributes: o7,
+    children: e4
+  };
+}
+
+// node_modules/vibegame/dist/core/runtime-manager.js
+var e2 = [];
+function t2(i3) {
+  e2.push(i3);
+}
+function o5(i3) {
+  const n2 = e2.indexOf(i3);
+  n2 !== -1 && e2.splice(n2, 1);
+}
+function s3() {
+  if (e2.length > 0) {
+    console.warn(
+      `[VibeGame] Disposing ${e2.length} active runtime(s)`
+    );
+    for (const i3 of e2)
+      try {
+        i3.destroy();
+      } catch (n2) {
+        console.error("[VibeGame] Failed to dispose runtime:", n2);
+      }
+    e2.length = 0;
+  }
+}
+
+// node_modules/vibegame/dist/runtime.js
+var x3 = class {
+  constructor(e4, t4 = {}) {
+    __publicField(this, "state");
+    __publicField(this, "options");
+    __publicField(this, "isRunning", false);
+    __publicField(this, "isDestroyed", false);
+    __publicField(this, "mutationObserver");
+    __publicField(this, "canvasElements", /* @__PURE__ */ new Set());
+    this.state = e4, this.options = t4, t2(this);
+  }
+  async start() {
+    this.isRunning || (typeof document < "u" && this.options.dom !== false && await this.initializeBrowser(), this.isRunning = true, typeof requestAnimationFrame < "u" && this.options.autoStart !== false && this.startAnimationLoop());
+  }
+  stop() {
+    this.isRunning = false, this.mutationObserver && this.mutationObserver.disconnect();
+  }
+  destroy() {
+    if (this.isDestroyed)
+      throw new Error("[VibeGame] Runtime already destroyed");
+    this.stop(), this.state.dispose(), this.canvasElements.clear(), o5(this), this.isDestroyed = true;
+  }
+  step(e4 = T.DEFAULT_DELTA) {
+    this.state.step(e4);
+  }
+  getState() {
+    return this.state;
+  }
+  startAnimationLoop() {
+    let e4 = performance.now();
+    const t4 = (s6) => {
+      if (!this.isRunning) return;
+      requestAnimationFrame(t4);
+      const o7 = (s6 - e4) / 1e3;
+      e4 = s6, this.state.step(o7);
+    };
+    requestAnimationFrame(t4);
+  }
+  async initializeBrowser() {
+    document.readyState === "loading" && await new Promise((e4) => {
+      document.addEventListener("DOMContentLoaded", () => e4());
+    }), await this.state.initializePlugins(), this.processWorldElements(), this.setupMutationObserver(), this.state.step(T.FIXED_TIMESTEP);
+  }
+  processWorldElements() {
+    document.querySelectorAll("world").forEach((t4) => {
+      this.processWorldElement(t4);
+    });
+  }
+  processWorldElement(e4) {
+    if (e4.tagName.toLowerCase() !== "world") return;
+    e4.style.display = "none";
+    const t4 = e4.getAttribute("canvas");
+    if (t4) {
+      const s6 = document.querySelector(
+        t4
+      );
+      if (s6) {
+        this.canvasElements.add(s6);
+        const o7 = this.state.createEntity();
+        this.state.addComponent(o7, t), t.hasCanvas[o7] = 1;
+        const r2 = e4.getAttribute("sky");
+        if (r2) {
+          const n2 = o4.parse(r2);
+          typeof n2 == "number" && (t.clearColor[o7] = n2);
+        }
+        N(o7, s6), x(s6);
+      }
+    }
+    this.processWorldContent(e4);
+  }
+  processWorldContent(e4) {
+    try {
+      const t4 = e4.innerHTML;
+      this.validateNoSelfClosingTags(t4), typeof process < "u" && true && this.validateXMLStructure(t4);
+      const s6 = `<world>${t4}</world>`, o7 = i.parse(s6);
+      if (o7.root.tagName === "parsererror") {
+        const r2 = t4.substring(0, 200);
+        throw new Error(
+          `[XML Parsing] Invalid XML syntax detected.
+  Check your HTML for malformed tags or attributes.
+  Content preview: ${r2}...`
+        );
+      }
+      I2(this.state, o7.root);
+    } catch (t4) {
+      if (console.error("❌ World content parsing failed:", t4), typeof process < "u" && true)
+        throw t4;
+    }
+  }
+  validateNoSelfClosingTags(e4) {
+    var _a;
+    const t4 = /<(tween|player|entity|static-part|dynamic-part|kinematic-part)[^>]*\/>/g, s6 = e4.match(t4);
+    if (s6) {
+      const o7 = (_a = s6[0].match(/<(\w+)/)) == null ? void 0 : _a[1];
+      throw new Error(
+        `[VibeGame] Self-closing <${o7} /> tags are not supported.
+  HTML5 doesn't recognize self-closing custom elements.
+  Use explicit closing tags: <${o7}></${o7}>`
+      );
+    }
+  }
+  validateXMLStructure(e4) {
+    const t4 = /* @__PURE__ */ new Set([
+      "area",
+      "base",
+      "br",
+      "col",
+      "embed",
+      "hr",
+      "img",
+      "input",
+      "link",
+      "meta",
+      "param",
+      "source",
+      "track",
+      "wbr"
+    ]), s6 = [], o7 = e4.split(`
+`);
+    let r2 = 0;
+    for (const n2 of o7) {
+      r2++;
+      const c3 = n2.matchAll(/<(\w+)([^>]*?)>/g), p7 = n2.matchAll(/<\/(\w+)>/g);
+      for (const l3 of c3) {
+        const i3 = l3[1].toLowerCase(), a5 = l3[2];
+        !t4.has(i3) && !a5.endsWith("/") && s6.push({ name: i3, line: r2 });
+      }
+      for (const l3 of p7) {
+        const i3 = l3[1].toLowerCase(), a5 = s6.pop();
+        if (!a5)
+          throw new Error(
+            `[XML Validation] Unexpected closing tag </${i3}> at line ${r2}.
+  No matching opening tag found.`
+          );
+        if (a5.name !== i3)
+          throw new Error(
+            `[XML Validation] Mismatched tags at line ${r2}.
+  Expected </${a5.name}> (opened at line ${a5.line})
+  Found </${i3}>`
+          );
+      }
+    }
+    if (s6.length > 0) {
+      const n2 = s6.map((c3) => `<${c3.name}> at line ${c3.line}`).join(", ");
+      throw new Error(
+        `[XML Validation] Unclosed tags detected:
+  ${n2}
+  Hint: Browser may have misinterpreted self-closing custom elements.`
+      );
+    }
+  }
+  setupMutationObserver() {
+    typeof MutationObserver > "u" || (this.mutationObserver = new MutationObserver((e4) => {
+      e4.forEach((t4) => {
+        t4.addedNodes.forEach((s6) => {
+          var _a;
+          if (s6.nodeType === Node.ELEMENT_NODE) {
+            const o7 = s6;
+            o7.tagName.toLowerCase() === "world" && this.processWorldElement(o7), (_a = o7.querySelectorAll) == null ? void 0 : _a.call(o7, "world").forEach((r2) => {
+              this.processWorldElement(r2);
+            });
+          }
+        }), t4.removedNodes.forEach((s6) => {
+          var _a;
+          if (s6.nodeType === Node.ELEMENT_NODE) {
+            const o7 = s6;
+            if (o7.tagName.toLowerCase() === "canvas" && this.canvasElements.has(o7)) {
+              console.warn(
+                "[VibeGame] Canvas removed from DOM, disposing runtime"
+              ), this.destroy();
+              return;
+            }
+            (_a = o7.querySelectorAll) == null ? void 0 : _a.call(o7, "canvas").forEach((r2) => {
+              if (this.canvasElements.has(r2)) {
+                console.warn(
+                  "[VibeGame] Canvas removed from DOM, disposing runtime"
+                ), this.destroy();
+                return;
+              }
+            });
+          }
+        });
+      });
+    }), this.mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    }), this.mutationObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    }));
+  }
+};
+
+// node_modules/vibegame/dist/builder.js
+var u = class {
+  constructor(t4 = {}) {
+    __publicField(this, "state");
+    __publicField(this, "options");
+    __publicField(this, "useDefaultPlugins", true);
+    __publicField(this, "excludedPlugins", /* @__PURE__ */ new Set());
+    __publicField(this, "plugins", []);
+    __publicField(this, "systems", []);
+    __publicField(this, "components", /* @__PURE__ */ new Map());
+    __publicField(this, "recipes", []);
+    __publicField(this, "configs", []);
+    this.state = new v2(), this.options = t4;
+  }
+  withoutDefaultPlugins() {
+    return this.useDefaultPlugins = false, this;
+  }
+  withoutPlugins(...t4) {
+    for (const s6 of t4)
+      this.excludedPlugins.add(s6);
+    return this;
+  }
+  withPlugin(t4) {
+    return this.plugins.push(t4), this;
+  }
+  withPlugins(...t4) {
+    return this.plugins.push(...t4), this;
+  }
+  withSystem(t4) {
+    return this.systems.push(t4), this;
+  }
+  withSystems(...t4) {
+    return this.systems.push(...t4), this;
+  }
+  withComponent(t4, s6) {
+    return this.components.set(t4, s6), this;
+  }
+  withRecipe(t4) {
+    return this.recipes.push(t4), this;
+  }
+  withConfig(t4) {
+    return this.configs.push(t4), this;
+  }
+  configure(t4) {
+    return this.options = { ...this.options, ...t4 }, this;
+  }
+  async build() {
+    if (this.useDefaultPlugins) {
+      const { DefaultPlugins: t4 } = await import("./defaults-P3TIKEDK.js");
+      for (const s6 of t4)
+        this.excludedPlugins.has(s6) || this.state.registerPlugin(s6);
+    }
+    for (const t4 of this.plugins)
+      this.state.registerPlugin(t4);
+    for (const t4 of this.systems)
+      this.state.registerSystem(t4);
+    for (const [t4, s6] of this.components)
+      this.state.registerComponent(t4, s6);
+    for (const t4 of this.recipes)
+      this.state.registerRecipe(t4);
+    for (const t4 of this.configs)
+      this.state.registerConfig(t4);
+    return new x3(this.state, this.options);
+  }
+  async run() {
+    const t4 = await this.build();
+    return await t4.start(), t4;
+  }
+};
+
+// node_modules/vibegame/dist/core/recipes/recipes.js
+var e3 = {
+  name: "entity",
+  components: []
+};
+
+// node_modules/vibegame/dist/core/recipes/utils.js
+function w(e4, n2, o7) {
+  const t4 = new Euler(e4, n2, o7), r2 = new Quaternion().setFromEuler(t4);
+  return { x: r2.x, y: r2.y, z: r2.z, w: r2.w };
+}
+
+// node_modules/vibegame/dist/core/xml/traverser.js
+function h3(d4, o7) {
+  function r2(n2) {
+    var _a;
+    !((_a = o7.onElement) == null ? void 0 : _a.call(o7, n2)) && o7.onUnhandled && o7.onUnhandled(n2);
+    for (const f2 of n2.children)
+      r2(f2);
+  }
+  for (const n2 of d4.children)
+    r2(n2);
+}
+function i2(d4, o7) {
+  const r2 = [];
+  function n2(c3) {
+    o7(c3) && r2.push(c3);
+    for (const f2 of c3.children)
+      n2(f2);
+  }
+  for (const c3 of d4.children)
+    n2(c3);
+  return r2;
+}
+
+// node_modules/vibegame/dist/core/validation/error-formatter.js
+function $3(e4) {
+  return e4.map((a5) => typeof a5 == "number" ? `[${a5}]` : a5).join(".");
+}
+function s4(e4, a5 = {}) {
+  const { recipeName: t4 = "unknown" } = a5, n2 = $3(e4.path || []);
+  switch (e4.code) {
+    case "invalid_union":
+      return e4.unionErrors && e4.unionErrors.length > 0 ? e4.unionErrors.map(
+        (o7) => (
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          o7.issues.map((i3) => s4(i3, a5))
+        )
+      ).flat()[0] || `Invalid value at ${n2}` : `Invalid value at ${n2}`;
+    case "invalid_enum_value": {
+      const r2 = String(e4.received), o7 = e4.options;
+      return h(t4, n2, r2, o7);
+    }
+    case "invalid_type":
+      return e4.path.length === 0 ? `Invalid ${t4} configuration - expected object` : d(
+        t4,
+        n2,
+        e4.expected,
+        e4.received
+      );
+    case "unrecognized_keys": {
+      const r2 = e4.keys, o7 = [];
+      for (const i3 of r2) {
+        const c3 = _[t4], l3 = c3 ? Object.keys(c3.shape) : [], m2 = g(i3, t4, l3);
+        o7.push(m2);
+      }
+      return o7.join(`
+`);
+    }
+    case "invalid_string": {
+      if (e4.validation === "regex") {
+        let r2 = "valid format";
+        return n2.includes("pos") || n2.includes("size") || n2.includes("scale") ? r2 = '"x y z" (three space-separated numbers)' : n2.includes("color") && (r2 = "hex color (#RRGGBB or 0xRRGGBB)"), m(
+          t4,
+          String(e4.path[e4.path.length - 1]),
+          r2,
+          "invalid format"
+        );
+      }
+      return `[${t4}.${n2}] Invalid string format`;
+    }
+    case "too_small":
+    case "too_big": {
+      const r2 = e4.code === "too_small" ? "minimum" : "maximum", o7 = e4.code === "too_small" ? e4.minimum : e4.maximum;
+      return `[${t4}.${n2}] Value must be ${r2} ${o7}`;
+    }
+    case "invalid_literal":
+      return `[${t4}.${n2}] Expected "${e4.expected}", got "${e4.received}"`;
+    case "custom":
+      return e4.message || `[${t4}.${n2}] Validation failed`;
+    default:
+      return `[${t4}${n2 ? "." + n2 : ""}] ${e4.message}`;
+  }
+}
+function x4(e4, a5 = {}) {
+  const { filename: t4, lineNumber: n2 } = a5, r2 = [];
+  if (t4) {
+    const i3 = n2 ? `:${n2}` : "";
+    r2.push(`Validation error in ${t4}${i3}:`);
+  }
+  const o7 = /* @__PURE__ */ new Set();
+  for (const i3 of e4.issues) {
+    const c3 = s4(i3, a5);
+    c3 && !o7.has(c3) && (o7.add(c3), r2.push(c3));
+  }
+  return r2.join(`
+`);
+}
+
+// node_modules/vibegame/dist/core/validation/parser.js
+function p5(e4, r2, t4 = {}) {
+  const n2 = _[e4];
+  if (!n2) {
+    const s6 = Object.keys(_);
+    throw new Error(
+      `Unknown recipe "${e4}". Available recipes: ${s6.join(", ")}`
+    );
+  }
+  const a5 = n2.safeParse(r2);
+  if (!a5.success) {
+    const s6 = x4(a5.error, {
+      recipeName: e4,
+      ...t4
+    });
+    throw new Error(s6);
+  }
+  return a5.data;
+}
+function h4(e4, r2, t4 = {}) {
+  try {
+    return { success: true, data: p5(e4, r2, t4) };
+  } catch (n2) {
+    return {
+      success: false,
+      error: n2 instanceof Error ? n2.message : String(n2)
+    };
+  }
+}
+var o6 = {
+  world: [
+    "entity",
+    "static-part",
+    "dynamic-part",
+    "kinematic-part",
+    "player",
+    "camera",
+    "tween",
+    "sequence"
+  ],
+  entity: [
+    "tween",
+    "sequence",
+    "entity",
+    "static-part",
+    "dynamic-part",
+    "kinematic-part",
+    "player",
+    "camera"
+  ],
+  "static-part": ["entity", "tween", "sequence"],
+  "dynamic-part": ["entity", "tween", "sequence"],
+  "kinematic-part": ["entity", "tween", "sequence"],
+  player: ["entity", "tween", "sequence"],
+  camera: [],
+  tween: [],
+  sequence: ["tween", "pause"],
+  pause: []
+};
+function w2(e4, r2) {
+  const t4 = o6[e4];
+  return t4 ? t4.includes(r2) : false;
+}
+function u2(e4, r2 = {}, t4) {
+  var _a;
+  const n2 = e4.tagName;
+  if (!(n2 in _))
+    return {
+      success: false,
+      error: `Unknown element <${e4.tagName}>. Available recipes: ${Object.keys(_).join(", ")}`
+    };
+  if (t4 && !w2(t4, e4.tagName))
+    return {
+      success: false,
+      error: `Element <${e4.tagName}> is not allowed as a child of <${t4}>. Allowed children: ${((_a = o6[t4]) == null ? void 0 : _a.join(", ")) || "none"}`
+    };
+  const a5 = h4(
+    n2,
+    e4.attributes,
+    r2
+  );
+  if (!a5.success)
+    return a5;
+  for (let s6 = 0; s6 < e4.children.length; s6++) {
+    const i3 = u2(
+      e4.children[s6],
+      {
+        ...r2,
+        lineNumber: void 0
+      },
+      e4.tagName
+    );
+    if (!i3.success)
+      return i3;
+  }
+  return { success: true, data: a5.data };
+}
+function y4(e4, r2 = {}) {
+  try {
+    const t4 = i.parse(e4);
+    return u2(t4.root, r2);
+  } catch (t4) {
+    return t4 instanceof Error ? {
+      success: false,
+      error: t4.message
+    } : {
+      success: false,
+      error: String(t4)
+    };
+  }
+}
+function v3(e4, r2 = {}) {
+  const t4 = [], n2 = /<(world|entity|static-part|dynamic-part|kinematic-part|player|camera|tween)([^>]*?)(?:\/>|>[\s\S]*?<\/\1>)/gi, a5 = e4.matchAll(n2);
+  for (const s6 of a5) {
+    const i3 = s6[0], l3 = e4.substring(0, s6.index).split(`
+`).length, f2 = y4(i3, {
+      ...r2,
+      lineNumber: l3
+    });
+    t4.push(f2);
+  }
+  return t4;
+}
+function R2(e4) {
+  return e4 in _;
+}
+function q2(e4) {
+  return _[e4];
+}
+
+// node_modules/vibegame/dist/index.js
+var r = null;
+function t3() {
+  return r || (r = new u()), r;
+}
+function a4() {
+  s3(), r = null;
+}
+function f(e4) {
+  return t3().withPlugin(e4);
+}
+function p6(...e4) {
+  return t3().withPlugins(...e4);
+}
+function s5() {
+  return t3().withoutDefaultPlugins();
+}
+function c2(...e4) {
+  return t3().withoutPlugins(...e4);
+}
+function d3(e4) {
+  return t3().withSystem(e4);
+}
+function x5(e4, n2) {
+  return t3().withComponent(e4, n2);
+}
+function h5(e4) {
+  return t3().configure(e4);
+}
+async function g4() {
+  const e4 = t3();
+  return s3(), r = null, e4.run();
+}
+export {
+  E as NULL_ENTITY,
+  o2 as Parent,
+  a2 as ParseContext,
+  v2 as State,
+  T as TIME_CONSTANTS,
+  Types,
+  i as XMLParser,
+  o4 as XMLValueParser,
+  addComponent,
+  addEntity,
+  h5 as configure,
+  g3 as createSnapshot,
+  createWorld,
+  defineComponent,
+  defineQuery,
+  s3 as disposeAllRuntimes,
+  e3 as entityRecipe,
+  T2 as eulerToQuaternion,
+  i2 as findElements,
+  q as formatSnapshot,
+  w as fromEuler,
+  q2 as getRecipeSchema,
+  hasComponent,
+  R2 as isValidRecipeName,
+  A as lerp,
+  I2 as parseXMLToEntities,
+  F as quaternionToEuler,
+  t2 as registerRuntime,
+  removeComponent,
+  removeEntity,
+  a4 as resetBuilder,
+  g4 as run,
+  h4 as safeValidateRecipeAttributes,
+  Q as slerp,
+  p as toCamelCase,
+  o as toKebabCase,
+  h3 as traverseElements,
+  o5 as unregisterRuntime,
+  v3 as validateHTMLContent,
+  p5 as validateRecipeAttributes,
+  y4 as validateXMLContent,
+  x5 as withComponent,
+  f as withPlugin,
+  p6 as withPlugins,
+  d3 as withSystem,
+  s5 as withoutDefaultPlugins,
+  c2 as withoutPlugins
+};
+//# sourceMappingURL=vibegame.js.map

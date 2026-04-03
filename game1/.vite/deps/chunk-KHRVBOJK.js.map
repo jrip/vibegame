@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/vibegame/src/plugins/transforms/plugin.ts"],
+  "sourcesContent": ["import type { Plugin } from '../../core';\nimport { Transform, WorldTransform } from './components';\nimport { TransformHierarchySystem } from './systems';\n\nexport const TransformsPlugin: Plugin = {\n  systems: [TransformHierarchySystem],\n  components: {\n    Transform,\n    WorldTransform,\n  },\n  config: {\n    defaults: {\n      transform: {\n        rotW: 1,\n        scaleX: 1,\n        scaleY: 1,\n        scaleZ: 1,\n      },\n      'world-transform': {\n        rotW: 1,\n        scaleX: 1,\n        scaleY: 1,\n        scaleZ: 1,\n      },\n    },\n    validations: [\n      {\n        condition: (_recipeName, attributes) => 'world-transform' in attributes,\n        warning:\n          '\"world-transform\" is read-only.\\n  Use \"transform\" for local transforms, or \"body\" for physics objects',\n      },\n    ],\n  },\n};\n"],
+  "mappings": ";;;;;;;AAIO,IAAMA,IAA2B;EACtC,SAAS,CAACC,CAAwB;EAClC,YAAY;IACV,WAAAC;IACA,gBAAAC;EAAA;EAEF,QAAQ;IACN,UAAU;MACR,WAAW;QACT,MAAM;QACN,QAAQ;QACR,QAAQ;QACR,QAAQ;MAAA;MAEV,mBAAmB;QACjB,MAAM;QACN,QAAQ;QACR,QAAQ;QACR,QAAQ;MAAA;IACV;IAEF,aAAa;MACX;QACE,WAAW,CAACC,GAAaC,OAAe,qBAAqBA;QAC7D,SACE;;MAAA;IACJ;EACF;AAEJ;",
+  "names": ["TransformsPlugin", "TransformHierarchySystem", "Transform", "WorldTransform", "_recipeName", "attributes"]
+}
