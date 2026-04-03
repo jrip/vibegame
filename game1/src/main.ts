@@ -5,7 +5,7 @@ import { PlayerPlugin } from 'vibegame/player';
 import { StartupPlugin } from 'vibegame/startup';
 import { RespawnPlugin } from 'vibegame/respawn';
 import { PhysicsWorld, Body, CollisionEvents, TouchedEvent, SetLinearVelocity } from 'vibegame/physics';
-import { InputState, consumePrimary, INPUT_CONFIG } from 'vibegame/input';
+import { InputPlugin, InputState, consumePrimary, INPUT_CONFIG } from 'vibegame/input';
 import { OrbitCamera } from 'vibegame/orbit-camera';
 import { Transform } from 'vibegame/transforms';
 import {
@@ -1312,11 +1312,98 @@ const physicsWorldQuery = GAME.defineQuery([PhysicsWorld]);
 const touchedQuery = GAME.defineQuery([TouchedEvent]);
 const renderContextQuery = GAME.defineQuery([RenderContext]);
 
+/** Касание: сдвиг пальца от точки нажатия → moveX; короткий тап → выстрел. */
+let touchSteerX = 0;
+let touchPointerActive = false;
+let touchDown: { x: number; y: number; t: number } | null = null;
+let activeTouchPointerId: number | null = null;
+let touchFirePending = false;
+
+function installMobileControls(canvas: HTMLCanvasElement) {
+  const steerDenominator = () => Math.max(window.innerWidth, 320) * 0.2;
+  const tapSlopPx = 16;
+  const tapMaxMs = 420;
+
+  canvas.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.button !== 0) return;
+      if (e.pointerType === 'mouse') return;
+      if (activeTouchPointerId !== null) return;
+      activeTouchPointerId = e.pointerId;
+      touchPointerActive = true;
+      touchDown = { x: e.clientX, y: e.clientY, t: performance.now() };
+      touchSteerX = 0;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      try {
+        canvas.focus();
+      } catch {
+        /* ignore */
+      }
+    },
+    { passive: true },
+  );
+
+  canvas.addEventListener(
+    'pointermove',
+    (e) => {
+      if (e.pointerId !== activeTouchPointerId || !touchDown) return;
+      const dx = e.clientX - touchDown.x;
+      const span = steerDenominator();
+      touchSteerX = Math.max(-1, Math.min(1, span > 1e-6 ? dx / span : 0));
+    },
+    { passive: true },
+  );
+
+  const endTouch = (e: PointerEvent) => {
+    if (e.pointerId !== activeTouchPointerId || !touchDown) return;
+    const dt = performance.now() - touchDown.t;
+    const moved = Math.hypot(e.clientX - touchDown.x, e.clientY - touchDown.y);
+    if (moved < tapSlopPx && dt < tapMaxMs) touchFirePending = true;
+    touchPointerActive = false;
+    touchDown = null;
+    activeTouchPointerId = null;
+    touchSteerX = 0;
+    try {
+      canvas.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  canvas.addEventListener('pointerup', endTouch);
+  canvas.addEventListener('pointercancel', endTouch);
+}
+
+function consumeTouchFire(): boolean {
+  if (!touchFirePending) return false;
+  touchFirePending = false;
+  return true;
+}
+
+const inputSystems = InputPlugin.systems;
+if (!inputSystems?.[0]) throw new Error('InputPlugin: expected InputSystem');
+const InputSystemRef = inputSystems[0] as GAME.System;
+
+const TouchSteerInput: GAME.System = {
+  group: 'simulation',
+  after: [InputSystemRef],
+  update: (state) => {
+    if (planeId < 0 || !state.exists(planeId)) return;
+    if (touchPointerActive) InputState.moveX[planeId] = touchSteerX;
+  },
+};
+
 const InitRuntime: GAME.System = {
   setup: (state) => {
     const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
     const ctxEnt = renderContextQuery(state.world)[0];
     if (canvas && ctxEnt !== undefined) setCanvasElement(ctxEnt, canvas);
+    if (canvas) installMobileControls(canvas);
   },
 };
 
@@ -1505,7 +1592,7 @@ const GameplaySim: GAME.System = {
     for (const mid of [...missileIds]) {
       if (!state.exists(mid)) missileIds.delete(mid);
     }
-    if (consumePrimary() && missileIds.size === 0) {
+    if ((consumePrimary() || consumeTouchFire()) && missileIds.size === 0) {
       const x = Body.posX[planeId];
       const y = Body.posY[planeId];
       const z = Body.posZ[planeId];
@@ -1656,6 +1743,7 @@ GAME.withoutDefaultPlugins();
 for (const p of plugins) GAME.withPlugin(p);
 GAME.withSystem(InitRuntime);
 GAME.withSystem(FlightFixed);
+GAME.withSystem(TouchSteerInput);
 GAME.withSystem(GameplaySim);
 
 document.getElementById('game-end-btn')?.addEventListener('click', () => {
